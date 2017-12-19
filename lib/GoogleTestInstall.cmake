@@ -1,0 +1,12 @@
+#
+# (C) 2017 Terrain Data, Inc.
+#
+
+# Google Test
+ExternalProject_Add(googletest
+  GIT_REPOSITORY "https://github.com/google/googletest.git"
+  GIT_TAG master
+  PREFIX "${EXTERNAL_LIBRARIES_PATH}"
+  CMAKE_ARGS "-DCMAKE_INSTALL_PREFIX=${EXTERNAL_LIBRARIES_PATH}/${CMAKE_BUILD_TYPE}/googletest" "-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}" "-DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS_CURRENT_CONFIGURATION}"
+  STEP_TARGETS build
+)

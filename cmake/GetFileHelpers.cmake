@@ -1,0 +1,11 @@
+function(getSourceFiles source_name dir)
+    FILE (GLOB_RECURSE files_c ${dir}/*.c)
+    FILE (GLOB_RECURSE files_cpp ${dir}/*.cpp)
+    SET(${source_name} ${files_c} ${files_cpp} PARENT_SCOPE)
+endfunction(getSourceFiles)
+
+function(getHeaderFiles source_name dir)
+    FILE (GLOB_RECURSE files_h ${dir}/*.h)
+    FILE (GLOB_RECURSE files_hpp ${dir}/*.hpp)
+    SET(${source_name} ${files_h} ${files_hpp} PARENT_SCOPE)
+endfunction(getHeaderFiles)
