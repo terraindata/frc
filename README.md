@@ -55,7 +55,7 @@ to make a commit in order to automatically enforce our code style.
 
 ## License
 
-Please see the included COPYING.md.
+Please see the included [COPYING.md](COPYING.md).
 
 ## Using in a Research Project
 
