@@ -129,9 +129,10 @@ static void test(string struct_name, TestType testMode, bool useFRC = false,
 
         for(lng trial = 0; trial < numTrials; ++trial)
         {
+            frc::detail::FRCManager::collect();
             // Build the data struct
-            DataStruct dataStruct;
-            build_random_structs(maxThreads * maxRemoves, &dataStruct);
+            std::unique_ptr<DataStruct> dataStruct(new DataStruct());
+            build_random_structs(maxThreads * maxRemoves, dataStruct.get());
 
             threads.clear();
             for(lng t = 0; t < numThreads; ++t)
@@ -140,7 +141,7 @@ static void test(string struct_name, TestType testMode, bool useFRC = false,
                 bindToProcessor(t2);
                 frc::FRCToken token;
 
-                DataStruct* pDataStruct = &dataStruct;
+                DataStruct* pDataStruct = dataStruct.get();
                 std::chrono::high_resolution_clock::time_point tic, toc;
 
                 threadBarrier.wait(); // Get all threads ready to go
@@ -153,6 +154,14 @@ static void test(string struct_name, TestType testMode, bool useFRC = false,
                 toc = std::chrono::high_resolution_clock::now();
                 threadTimes[t2] = std::chrono::duration_cast<std::chrono::duration<double, std::milli>>
                                   (toc - tic).count();
+
+                threadBarrier.wait();
+                if(t == 0)
+                    dataStruct.reset();
+                threadBarrier.wait();
+
+                for(sz i = 0; i < 32; ++i)
+                    frc::detail::FRCManager::collect();
             }, t);
             for(auto& t : threads)
                 t.join();
@@ -160,6 +169,7 @@ static void test(string struct_name, TestType testMode, bool useFRC = false,
                 times.push_back(std::accumulate(threadTimes.begin(), threadTimes.end(),
                                                 0.) / (numRemoves * numThreads));
         }
+        frc::detail::FRCManager::collect();
     }
     std::ofstream ofile;
     string threadAppend = (testMode == TestType::workload

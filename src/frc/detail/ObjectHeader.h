@@ -105,7 +105,9 @@ public:
                 return false;
 
             if(count.compare_exchange_weak(c, c - 1, oarl, oacq))
+            {
                 return true;
+            }
         }
     }
 
@@ -118,7 +120,10 @@ public:
      */
     bool decrement() noexcept
     {
-        return count.load(ocon) <= 1 || count.fetch_sub(1, oarl) <= 1;
+        if(FRCConstants::enableCheckedDecrements)
+            return count.load(ocon) <= 1 || count.fetch_sub(1, oarl) <= 1;
+        else
+            return count.fetch_sub(1, oarl) <= 1;
     }
 
     void decrementAndDestroy() noexcept

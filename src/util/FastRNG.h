@@ -21,8 +21,10 @@
 
 #pragma once
 
+#include <chrono>
 #include "types.h"
 #include "tls.h"
+#include <util/DebugPrintf.h>
 
 namespace terrain
 {
@@ -65,11 +67,11 @@ private:
 
 public:
 
-    static void seed();
+    static un seed();
 
-    static void seed(un value)
+    static un seed(un value)
     {
-        fastRNGSeeds = value;
+        return fastRNGSeeds = value;
     }
 
     /**
