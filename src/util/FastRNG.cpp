@@ -30,9 +30,9 @@ namespace detail
 tls(un, fastRNGSeeds);
 }
 
-void FastRNG::seed()
+un FastRNG::seed()
 {
-    fastRNGSeeds = (un)getticks();
+    return seed((un)getticks());
 }
 
 } // namespace terrain

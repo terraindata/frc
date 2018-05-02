@@ -39,6 +39,8 @@ static void test_1(string struct_name, bool useFRC = false, bool newFile = false
 {
     frc::FRCToken token;
 
+    frc::detail::FRCManager::collect();
+
     // Ready threads
     std::vector<std::thread> threads;
 
@@ -136,6 +138,8 @@ static void test_1(string struct_name, bool useFRC = false, bool newFile = false
     ofile << std::scientific << std::setprecision(10) <<
           std::chrono::duration_cast<std::chrono::duration<double, std::milli>>
           (toc - tic).count() << std::endl;
+
+    frc::detail::FRCManager::collect();
 }
 
 enum InstructionTypes {read, insert, remove};

@@ -31,21 +31,27 @@ namespace detail
 {
 
 
+tls(ScanFlag, scanFlag);
+
+
 ThreadData::ThreadData() :
     decrementIndex(0),
     helpIndex(FRCConstants::baseHelpInterval),
-    decrementBuffer(new ObjectHeader * [FRCConstants::logSize]),
+    decrementBuffer(new ObjectHeader * [FRCConstants::logBufferSize]),
     helping(false),
     lastHelpIndex(0),
-    lastMarkIndex(0),
+    lastScanIndex(0),
     decrementConsumerIndex(0),
     decrementCaptureIndex(0),
+    decrementStackIndex(0),
+    decrementStackTarget(0),
     numRemainingDecrementBlocks(-1),
-    numRemainingMarkBlocks(numMarkBlocks),
+    numRemainingScanBlocks(numScanBlocks),
     detached(false),
     helpRouter(nullptr)
 {
-    ;
+    scanFlag.flag.store(false, orls);
+    decrementStack.reserve(FRCConstants::logSize);
 }
 
 ThreadData::~ThreadData()
@@ -57,7 +63,7 @@ void ThreadData::help()
 {
     decrementIndex &= FRCConstants::logMask; //wrap log index
     writeFence();
-    lastHelpIndex = decrementIndex;
+    lastHelpIndex.store(decrementIndex, orls);
 
     //don't recursively help
     if(helping)
@@ -66,45 +72,50 @@ void ThreadData::help()
         return;
     }
 
-    helpIndex = FRCConstants::logSize;
+    helpIndex = FRCConstants::logBufferSize;
     helping = true;
-    for(;;)
+    //  for (;;)
+    //  {
+    if(decrementStackIndex + bufferSeparation(decrementCaptureIndex, decrementIndex)
+            <= FRCConstants::maxLogSizeBeforeBlockingHelpCall)
     {
-        if(bufferSeparation(decrementConsumerIndex, decrementIndex)
-                <= FRCConstants::maxLogSizeBeforeBlockingHelpCall)
-        {
-            helpRouter->tryHelp(this);
-        }
-        else
-        {
-            helpRouter->help(this);
-        }
-
-
-        //make help interval shrink as the buffer grows
-        auto helpInterval = FRCConstants::baseHelpInterval;
-        auto bufferUsed = bufferSeparation(decrementConsumerIndex, decrementIndex);
-        if(bufferUsed > FRCConstants::maxLogSizeBeforeHelpIntervalReduction)
-        {
-            /* Exponentially decrease help interval past this point to exert increasing
-             * back-pressure on log processing. Closed-loop feedback control.
-             */
-
-            auto excessBufferUsage = bufferUsed - FRCConstants::maxLogSizeBeforeHelpIntervalReduction;
-            auto excess = 1 + excessBufferUsage / FRCConstants::helpIntervalReductionConstant;
-            helpInterval = (sz)(helpInterval / excess);
-        }
-
-        if(helpInterval < 1)
-            continue;
-
-        assert(helpInterval < (FRCConstants::logSize - bufferUsed)); // buffer overflow
-        helpIndex = std::min(FRCConstants::logSize, decrementIndex + helpInterval);
-        helping = false;
-
-        if(debug) dout("ThreadData::help() ", this, "  ", helpInterval, " ", bufferUsed);
-        break;
+        helpRouter->tryHelp(this);
     }
+    else
+    {
+        helpRouter->help(this);
+    }
+
+
+    //make help interval shrink as the buffer grows
+    auto helpInterval = FRCConstants::baseHelpInterval;
+    auto bufferUsed = bufferSeparation(decrementCaptureIndex, decrementIndex);
+    auto logUsed = decrementStackIndex + bufferUsed;
+    if(logUsed > FRCConstants::maxLogSizeBeforeHelpIntervalReduction)
+    {
+        /* Exponentially decrease help interval past this point to exert increasing
+         * back-pressure on log processing. Closed-loop feedback control.
+         */
+
+        auto excessUsage = logUsed - FRCConstants::maxLogSizeBeforeHelpIntervalReduction;
+        auto excess = 1 + excessUsage / FRCConstants::helpIntervalReductionConstant;
+        helpInterval = std::max((sz)1, (sz)(helpInterval / excess));
+    }
+
+    //    if (helpInterval < 1)
+    //      continue;
+
+    assert(helpInterval < (FRCConstants::logBufferSize - bufferUsed)); // buffer overflow
+    helpIndex = std::min(FRCConstants::logBufferSize, decrementIndex + helpInterval);
+    helping = false;
+
+    if(debug) dout("ThreadData::help() ", this, "  ", helpInterval, " ", bufferUsed);
+    if(debug && helpInterval <= 2)
+        dout("ThreadData::help() ", this, "  ",
+             helpInterval, " ", decrementStackIndex, " ",
+             logUsed - decrementStackIndex, " ", logUsed);
+    //    break;
+    //  }
 
 
 }

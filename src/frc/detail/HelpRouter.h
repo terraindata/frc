@@ -54,7 +54,7 @@ public:
     bool tryHelp();
     void help(ThreadData* td);
     void help();
-    void cleanUp(ThreadData* td);
+    void collect(ThreadData* td);
 
 private:
 
@@ -63,7 +63,7 @@ private:
     bool tryAdvancePhase();
 
 private:
-    static constexpr auto mark = FRCConstants::mark;
+    static constexpr auto scan = FRCConstants::scan;
     static constexpr auto sweep = FRCConstants::sweep;
 
     static constexpr bool debug = false;
@@ -101,7 +101,7 @@ private:
 private:
     uint phase;
     Queue* queues[2];
-    Queue markQueue, sweepQueue;
+    Queue scanQueue, sweepQueue;
 
     cacheLinePadding p0;
     std::mutex phaseMutex;

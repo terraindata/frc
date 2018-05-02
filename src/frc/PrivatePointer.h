@@ -100,14 +100,14 @@ public:
     PrivatePointer(PrivatePointer const& that) noexcept :
         pin(detail::PinSet::acquire())
     {
-        set(that);
+        copyFrom(that);
     }
 
     template<class V>
     PrivatePointer(PrivatePointer<V> const& that) noexcept :
         pin(detail::PinSet::acquire())
     {
-        set(that);
+        init(that);
     }
 
     template<class V>
@@ -121,7 +121,7 @@ public:
     PrivatePointer(SharedPointer<V> const& that) noexcept :
         pin(detail::PinSet::acquire())
     {
-        set(that);
+        init(that);
     }
 
     template<class V>
@@ -135,7 +135,7 @@ public:
     PrivatePointer(AtomicPointer<V> const& that) noexcept :
         pin(detail::PinSet::acquire())
     {
-        set(that);
+        init(that);
     }
 
     template<class V>
@@ -181,6 +181,8 @@ public:
 
     ~PrivatePointer() noexcept
     {
+        while(detail::ThreadData::isScanning())
+            ;
         detail::PinSet::release(pin);
     }
 
@@ -227,7 +229,7 @@ public:
 
     PrivatePointer& operator=(PrivatePointer const& that) noexcept
     {
-        return set(that);
+        return copyFrom(that);
     }
 
     PrivatePointer& operator=(PrivatePointer&& that) noexcept
@@ -303,12 +305,6 @@ public:
         *this = nullptr;
     }
 
-    //    template<class Y>
-    //    void reset(Y *ptr) noexcept
-    //    {
-    //        *this = ptr;
-    //    }
-
     size_t use_count() const noexcept
     {
         T* ptr = get();
@@ -326,7 +322,7 @@ private:
 
     PrivatePointer& set(std::nullptr_t) noexcept
     {
-        pin->store(nullptr, orls);
+        pin->store(nullptr, orlx);
         return *this;
     }
 
@@ -338,17 +334,35 @@ private:
     //    }
 
     template<class V>
-    PrivatePointer& set(PrivatePointer<V> const& that) noexcept
+    PrivatePointer& copyFrom(PrivatePointer<V> const& that) noexcept
+    {
+        auto ptr = that.get();
+        detail::registerIncrement(ptr);
+        pin->store(ptr, orls);
+        detail::registerDecrement(ptr);
+        return *this;
+    }
+
+    template<class V>
+    PrivatePointer& init(PrivatePointer<V> const& that) noexcept
     {
         pin->store(that.get(), orls);
         return *this;
     }
 
     template<class V>
-    PrivatePointer& set(V const& that) noexcept
+    PrivatePointer& set(PrivatePointer<V> const& that) noexcept
     {
-        /* We block the mark phase here with a specialized spin lock:
-         * The busySignal is a special value which causes the marking thread to wait until it has been cleared
+        //detail::ThreadData::waitForScan();
+        return init(that);
+    }
+
+
+    template<class V>
+    PrivatePointer& init(V const& that) noexcept
+    {
+        /* We block the scan phase here with a specialized spin lock:
+         * The busySignal is a special value which causes the scaning thread to wait until it has been cleared
          * when reading the thread's pins.
          *
          * This prevents a race condition where the source object is destructed after being read but before
@@ -359,6 +373,13 @@ private:
         auto ptr = that.get(oacq);
         pin->store(ptr, orls);
         return *this;
+    }
+
+    template<class V>
+    PrivatePointer& set(V const& that) noexcept
+    {
+        //detail::ThreadData::waitForScan();
+        return init(that);
     }
 
     /**

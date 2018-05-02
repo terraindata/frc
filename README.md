@@ -1,5 +1,6 @@
 Fast Reference Counter (FRC)
-(C) 2017 Terrain Data, Inc.
+
+(C) 2017, 2018 Terrain Data, Inc.
 
 ## Introduction
 
@@ -54,7 +55,7 @@ to make a commit in order to automatically enforce our code style.
 
 ## License
 
-Please see the included LICENSE.md.
+Please see the included COPYING.md.
 
 ## Using in a Research Project
 
@@ -62,6 +63,6 @@ If you use FRC in a research project, please cite our paper (below), and please
 send us a citation for your paper!
 
 ```
-Tripp et al., FRC: A High-Performance Deferred Reference Counter for C++, in press (2017).
+Tripp et al., FRC: A High-Performance Deferred Reference Counter for C++, in press (2018).
 ```
 

@@ -24,6 +24,7 @@
 #include <assert.h>
 #include <vector>
 #include <util/tls.h>
+#include <synchronization/MutexSpin.h>
 #include "ObjectHeader.h"
 #include "PinSet.h"
 
@@ -38,6 +39,16 @@ class ThreadData;
 
 //this is left uninitialized for performance reasons
 extern tls(ThreadData*, threadData);
+
+struct ScanFlag
+{
+    std::atomic<bool> flag;
+
+    constexpr ScanFlag() : flag(false)
+    {}
+};
+
+extern tls(ScanFlag, scanFlag);
 
 //this is used to track recursive registrations
 extern thread_local sz threadDataRegistrationCount;
@@ -66,6 +77,9 @@ private:
     static constexpr bool debugExtra = false;
 
 public:
+    //MutexSpin pinMutex;
+
+public:
 
     explicit ThreadData();
 
@@ -88,11 +102,8 @@ public:
         if(debugExtra)
             dout("ThreadData::registerDecrement() ", this, " ", threadData, " ", ptr, " ",
                  header, " ", header->getCount());
-        if(FRCConstants::enableRecursiveDelete && helping)
-        {
-            header->decrementAndDestroy();
-        }
-        else if(!header->tryDecrement())
+
+        if(!header->tryDecrement())
         {
             logDecrement(header);
         }
@@ -109,8 +120,8 @@ public:
     template<class PostDequeueHandler>
     bool tryHelp(byte phase, PostDequeueHandler&& postDequeueHandler)
     {
-        if(phase == FRCConstants::mark)
-            return mark(std::forward<PostDequeueHandler>(postDequeueHandler));
+        if(phase == FRCConstants::scan)
+            return scan(std::forward<PostDequeueHandler>(postDequeueHandler));
         return sweep(std::forward<PostDequeueHandler>(postDequeueHandler));
     }
 
@@ -125,55 +136,81 @@ public:
 
     bool isReadyToDestruct()
     {
-        return allWorkComplete() && detached.load(orlx);
+        return allWorkComplete() && detached.load(oacq);
     }
 
     bool allWorkComplete()
     {
-        return decrementIndex == decrementConsumerIndex;
+        return decrementStack.size() == 0 &&
+               decrementStackIndex == 0 &&
+               decrementIndex == decrementCaptureIndex;
+    }
+
+    static void waitForScan()
+    {
+        while(scanFlag.flag.load(oacq))
+        {
+            dout("waitForScan");
+            Relaxer::relax();
+        }
+    }
+
+    static bool isScanning()
+    {
+        return scanFlag.flag.load(oacq);
+    }
+
+    void protect(void* ptr)
+    {
+        if(!pinSet.isValid(ptr))
+            return;
+
+        auto header = getObjectHeader(ptr);
+        header->increment();
+        detail::threadData->logDecrement(header); //won't be processed until next epoch
+        if(debugExtra) dout("ThreadData::protect() ", this, " ", header);
     }
 
 private:
-    static constexpr auto numMarkBlocks =
+    static constexpr auto numScanBlocks =
         (uint)(FRCConstants::pinSetSize / FRCConstants::protectedBlockSize);
 
     template<class PostDequeueHandler>
-    bool mark(PostDequeueHandler&& postDequeueHandler)
+    bool scan(PostDequeueHandler&& postDequeueHandler)
     {
-        if(debug) dout("ThreadData::mark() ", this);
+        if(debug) dout("ThreadData::scan() ", this);
         readFence();
 
-        auto begin = lastMarkIndex;
+        auto begin = lastScanIndex;
         auto end = begin + FRCConstants::protectedBlockSize;
-        lastMarkIndex = end;
-        postDequeueHandler(lastMarkIndex >= FRCConstants::pinSetSize);
+        lastScanIndex = end;
+        postDequeueHandler(lastScanIndex >= FRCConstants::pinSetSize);
 
-        if(debug) dout("ThreadData::mark() success ", this, " ", begin, "-", end);
+        if(debug) dout("ThreadData::scan() success ", this, " ", begin, "-", end);
         auto protectedPtrs = this->pinSet.protectedObjects.get();
 
-        auto td = threadData;
-        for(auto i = begin; i < end; ++i)
         {
-            void* ptr;
-            do
-                ptr = protectedPtrs[i].load(oacq);
-            while(ptr == (void*) FRCConstants::busySignal);
+            scanFlag.flag.store(true, orls);
+            for(auto i = begin; i < end; ++i)
+            {
+                void* ptr;
 
-            if(!pinSet.isValid(ptr))
-                continue;
+                do
+                    ptr = protectedPtrs[i].load(oacq);
+                while(ptr == (void*) FRCConstants::busySignal);
 
-            auto header = getObjectHeader(ptr);
-            header->increment();
-            td->logDecrement(header); //won't be processed until next epoch
+                protect(ptr);
+            }
+            scanFlag.flag.store(false, orls);
         }
-        if(debug) dout("ThreadData::mark() done ", this, " ", begin, "-", end);
-        writeFence();
+        if(debug) dout("ThreadData::scan() done ", this, " ", begin, "-", end);
+        //writeFence();
 
         //TODO: could possibly eliminate the last write here
-        if(numRemainingMarkBlocks.fetch_sub(1, oarl) > 1)
+        if(numRemainingScanBlocks.fetch_sub(1, oarl) > 1)
             return false;
 
-        if(debug) dout("ThreadData::mark() completed ", this, " ", begin, "-", end);
+        if(debug) dout("ThreadData::scan() completed ", this, " ", begin, "-", end);
         return true;
     }
 
@@ -182,46 +219,61 @@ private:
     {
         readFence();
         if(debug) dout("ThreadData::sweep() ", this);
-        auto begin = decrementConsumerIndex;
-        auto blockSize = std::min(
-                             FRCConstants::logBlockSize,
-                             bufferSeparation(decrementConsumerIndex, decrementCaptureIndex));
-        decrementConsumerIndex = (begin + blockSize) & FRCConstants::logMask;
-        postDequeueHandler(decrementConsumerIndex == decrementCaptureIndex);
+        auto blockSize = std::min(FRCConstants::logBlockSize,
+                                  decrementStackIndex - decrementStackTarget);
+        auto begin = decrementStackIndex;
+        decrementStackIndex -= blockSize;
+        postDequeueHandler(decrementStackIndex <= decrementStackTarget);
 
         //success: dequeued a block
-        if(debug) dout("ThreadData::sweep() success ", this, " ", begin, "-", begin + blockSize);
-        for(auto i = begin; i < begin + blockSize; ++i)
+        if(debug) dout("ThreadData::sweep() success ", this, " ", begin, "-", blockSize);
+
+        for(sz i = 0; i < blockSize; ++i)
         {
-            auto& header = decrementBuffer[i & FRCConstants::logMask];
-            auto h = header;
+            auto h = decrementStack[begin - 1 - i];
+            if(debugExtra) dout("ThreadData::sweep() decrement ", this, " ", h);
             h->decrementAndDestroy();
-            header = nullptr;
         }
 
-        writeFence();
         //TODO: could possibly eliminate the last write here
         if(numRemainingDecrementBlocks.fetch_sub(1, oarl) > 1)
             return false;
 
-        //reset decrement capture index -- this captures the next group of decrements
-        decrementCaptureIndex = lastHelpIndex;
+        decrementStack.resize(decrementStackIndex);
 
-        intt numSweepBlocks;
-        auto delta = bufferSeparation(decrementConsumerIndex, decrementCaptureIndex);
-        if(delta == 0)
-            numSweepBlocks = -1; //special signal for zero capture
-        else
-            numSweepBlocks = (intt) ceilPositiveNoOverflow(delta, FRCConstants::logBlockSize);
+        //reset decrement capture index -- this captures the next group of decrements
+
+
+        auto from = decrementCaptureIndex;
+        auto to = lastHelpIndex.load(oacq);
+        for(sz i = from; i != to; i = (i + 1) & FRCConstants::logMask)
+        {
+            decrementStack.push_back(decrementBuffer[i]);
+        }
+
+        decrementCaptureIndex = to;
+
+        decrementStackIndex = decrementStack.size();
+        decrementStackTarget = decrementStackIndex - std::min(FRCConstants::logBlockSize * 4,
+                               decrementStackIndex);
+        auto numSweepBlocks = (intt) ceilPositiveNoOverflow(
+                                  decrementStackIndex - decrementStackTarget,
+                                  FRCConstants::logBlockSize);
         numRemainingDecrementBlocks.store(numSweepBlocks, orlx);
 
-        //reset mark vars
-        lastMarkIndex = 0;
-        numRemainingMarkBlocks.store(numMarkBlocks, orls);
+        //reset scan vars
+        lastScanIndex = 0;
+        numRemainingScanBlocks.store(numScanBlocks, orls);
 
         if(debug)
-            dout("ThreadData::sweep() completed ", this, " ", decrementCaptureIndex, " ", delta,
+            dout("ThreadData::sweep() completed ", this, " ", decrementStackIndex, " ",
+                 decrementStackTarget,
                  " ", numSweepBlocks);
+
+        //    if (decrementStackIndex > 20000 )//|| numSweepBlocks > 1)
+        //      dout(this, " ", decrementStackIndex, " ",
+        //           decrementStackTarget,
+        //           " ", numSweepBlocks);
 
         writeFence();
         return true;
@@ -231,7 +283,7 @@ private:
     {
         return (from <= to) ?
                (to - from) :
-               (to + (FRCConstants::logSize - from));
+               (to + (FRCConstants::logBufferSize - from));
     }
 
 private:
@@ -239,14 +291,18 @@ private:
     sz decrementIndex;
     sz helpIndex;
     std::unique_ptr<ObjectHeader *[]> decrementBuffer;
+    std::vector<ObjectHeader*> decrementStack;
     PinSet pinSet;
     bool helping;
     cacheLinePadding padding0;
 
     atm<sz> lastHelpIndex;
-    sz lastMarkIndex; //queues mark tasks
+    sz lastScanIndex; //queues scan tasks
     sz decrementConsumerIndex; //dequeues sweep tasks
     sz decrementCaptureIndex; //queues sweep tasks
+    sz decrementStackIndex;
+    sz decrementStackTarget;
+
 public:
     uint lastPhaseDispatched;
     uint subqueue;
@@ -254,7 +310,7 @@ private:
     cacheLinePadding padding2;
 
     atm<intt> numRemainingDecrementBlocks;
-    atm<uint> numRemainingMarkBlocks;
+    atm<uint> numRemainingScanBlocks;
     cacheLinePadding padding3;
 
     atm<bool> detached;

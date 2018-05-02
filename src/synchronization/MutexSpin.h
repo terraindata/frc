@@ -40,17 +40,19 @@ private:
 
 public:
 
-    MutexSpin() noexcept
+    constexpr MutexSpin() noexcept
+        : locked(false)
     {
-        locked.store(false, orls);
+        //locked.store(false, orls);
     }
 
     MutexSpin(MutexSpin const&) = delete;
+
     MutexSpin(MutexSpin&&) = delete;
 
     void lock() noexcept
     {
-        if(try_lock())
+        if(!locked.exchange(true, oarl))
             return;
 
         slowLock();
@@ -84,7 +86,8 @@ private:
                     [&]()
     {
         return try_lock();
-        }, 1024 * 128))
+        },
+        1024 * 128))
         return;
 
         while(!try_lock())

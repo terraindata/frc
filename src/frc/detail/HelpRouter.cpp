@@ -31,11 +31,11 @@ namespace detail
 {
 
 HelpRouter::HelpRouter(sz numGroups) :
-    phase(mark),
-    markQueue(numGroups),
+    phase(scan),
+    scanQueue(numGroups),
     sweepQueue(numGroups)
 {
-    queues[mark] = &markQueue;
+    queues[scan] = &scanQueue;
     queues[sweep] = &sweepQueue;
 
     writeFence();
@@ -168,15 +168,19 @@ void HelpRouter::help()
     }
 }
 
-void HelpRouter::cleanUp(ThreadData* td)
+void HelpRouter::collect(ThreadData* td)
 {
     do
     {
-        for(sz i = 0; i < 4; ++i)
+        for(sz i = 0; i < 2 * 8; ++i)
         {
+            readFence();
             auto start = phase;
             do
+            {
                 td->help();
+                readFence();
+            }
             while(phase == start);
         }
 

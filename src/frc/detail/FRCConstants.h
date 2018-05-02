@@ -34,24 +34,27 @@ class FRCConstants
 {
 public:
     static constexpr sz pinSetSize = 128;
-    static constexpr sz protectedBlockSize = 128; //must be a multiple of protected set size
+    static constexpr sz protectedBlockSize = 128; //must be pinSetSize
 
-    static constexpr sz logBlockSize = 4096;
-    static constexpr sz logSize = sz(1) << 20; //must be a power of two (8MB)
-    static constexpr sz logMask = logSize - 1;
+    static constexpr sz logBlockSize = 256;
+    static constexpr sz logSize = sz(1) << 21; //16 MB
+    static constexpr sz logBufferSize = sz(1) << 22; //must be a power of two (2MB)
+    static constexpr sz logMask = logBufferSize - 1;
 
-    static constexpr sz baseHelpInterval = 32;
-    static constexpr sz maxLogSizeBeforeHelpIntervalReduction = logBlockSize * 2;
-    static constexpr sz maxLogSizeBeforeBlockingHelpCall = 1024 * 128;
-    static constexpr float helpIntervalReductionConstant = logBlockSize * .5f;
+    static constexpr sz baseHelpInterval = 64;
+    static constexpr sz maxLogSizeBeforeHelpIntervalReduction = logSize / 2; //logBlockSize * 16;
+    static constexpr sz maxLogSizeBeforeBlockingHelpCall = logSize - 32 * logBlockSize;
+    static constexpr float helpIntervalReductionConstant = (logSize -
+            maxLogSizeBeforeHelpIntervalReduction) / baseHelpInterval;
     static constexpr sz numHelpAttemptsBeforeBlocking = 64;
-    static constexpr sz numTryHelpCallsOnUnregister = 32;
+    static constexpr sz numTryHelpCallsOnUnregister = 1024;
 
     static constexpr bool enableSemiDeferredDecrements = false;
-    static constexpr bool enableRecursiveDelete = true;
+    static constexpr bool enableCheckedDecrements = false;
+
     static constexpr sz busySignal = 1;
 
-    static constexpr byte mark = 0;
+    static constexpr byte scan = 0;
     static constexpr byte sweep = 1;
 };
 

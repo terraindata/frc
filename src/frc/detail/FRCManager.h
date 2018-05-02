@@ -24,7 +24,7 @@
 #include <cassert>
 
 #include <util/util.h>
-
+#include <synchronization/MutexSpin.h>
 #include "FRCConstants.h"
 #include "ThreadData.h"
 #include "DestructorMap.h"
@@ -66,8 +66,11 @@ public:
     FRCManager();
 
     FRCManager(FRCManager const&) = delete;
+
     FRCManager(FRCManager&&) = delete;
+
     FRCManager& operator=(FRCManager const&) = delete;
+
     FRCManager& operator=(FRCManager&&) = delete;
 
     ~FRCManager();
@@ -75,6 +78,8 @@ public:
     void help();
 
 public:
+
+    static void collect();
 
     static ThreadData* registerThread();
 

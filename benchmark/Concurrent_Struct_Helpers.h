@@ -30,8 +30,8 @@ namespace benchmarks
 namespace cds
 {
 
-static thread_local std::random_device rd;
-static thread_local std::mt19937_64 rng(rd());
+static std::random_device rd;
+static std::mt19937_64 rng(rd());
 
 template<typename Key, typename Value>
 inline void data_struct_insert(Key key, Value value)
@@ -48,7 +48,7 @@ inline void data_struct_insert(Key key, Value value, DataStruct1 dataStruct1,
 };
 
 template<typename Iter>
-void shuffle_nodes(Iter begin, Iter end)
+void shuffle_nodes(Iter const& begin, Iter const& end)
 {
     std::shuffle(begin, end, rng);
 };

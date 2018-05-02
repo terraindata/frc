@@ -24,6 +24,7 @@
 
 #include "FRCManager.h"
 #include "ThreadData.h"
+#include "../frc.h"
 #include <util/Exception.h>
 
 namespace terrain
@@ -64,7 +65,7 @@ FRCManager::FRCManager() :
 FRCManager::~FRCManager()
 {
     auto td = registerThread();
-    helpRouter.cleanUp(td);
+    helpRouter.collect(td);
     unregisterThread();
     delete td;
 }
@@ -116,6 +117,13 @@ void FRCManager::help()
     if(!isThreadRegistered())
         return;
     threadData->help();
+}
+
+
+void FRCManager::collect()
+{
+    FRCToken token;
+    getFRCManager().helpRouter.collect(threadData);
 }
 
 bool isThreadRegistered() noexcept

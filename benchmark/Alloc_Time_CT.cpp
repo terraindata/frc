@@ -108,7 +108,7 @@ TEST(FRC_Basic, ct_alloc_time_malloc)
 {
     alloc_test("new and delete", [](sz num_values)
     {
-        unique_ptr < Type*[] > values(new Type*[num_values]);
+        std::unique_ptr<Type *[]> values(new Type *[num_values]);
         for(sz i = 0; i < num_values; ++i)
         {
             values[i] = new Type(5);
@@ -126,7 +126,7 @@ TEST(FRC_Basic, ct_alloc_time_std)
     alloc_test("std::shared_ptr with std::make_shared", [](
                    sz num_values)
     {
-        unique_ptr < std::shared_ptr<Type>[] > values(new std::shared_ptr<Type>[num_values]);
+        std::unique_ptr<std::shared_ptr<Type>[]> values(new std::shared_ptr<Type>[num_values]);
         for(sz i = 0; i < num_values; ++i)
         {
             values[i] = std::make_shared<Type>(5);
@@ -155,7 +155,7 @@ TEST(FRC_Basic, ct_alloc_time_frc_s_makeProtected)
 {
     alloc_test("AtomicPointer::make", [](sz num_values)
     {
-        unique_ptr < ap<Type>[] > values(new AtomicPointer<Type>[num_values]);
+        std::unique_ptr<ap<Type>[]> values(new AtomicPointer<Type>[num_values]);
         for(sz i = 0; i < num_values; ++i)
         {
             values[i].make(5);

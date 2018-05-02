@@ -127,6 +127,7 @@ static void test(string struct_name, TestType testMode, bool useFRC = false,
 
         for(lng trial = 0; trial < numTrials; ++trial)
         {
+            frc::detail::FRCManager::collect();
             DataStruct dataStruct;
             threads.clear();
             for(lng t = 0; t < numThreads; ++t)
@@ -148,7 +149,8 @@ static void test(string struct_name, TestType testMode, bool useFRC = false,
                 toc = std::chrono::high_resolution_clock::now();
                 threadTimes[t2] = std::chrono::duration_cast<std::chrono::duration<double, std::milli >>
                                   (toc - tic).count();
-
+                threadBarrier.wait();
+                frc::detail::FRCManager::collect();
             }, t);
             for(auto& t : threads)
                 t.join();
