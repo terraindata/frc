@@ -62,7 +62,9 @@ Please see the included COPYING.md.
 If you use FRC in a research project, please cite our paper (below), and please
 send us a citation for your paper!
 
-```
-Tripp et al., FRC: A High-Performance Deferred Reference Counter for C++, in press (2018).
-```
+> Charles Tripp, David Hyde, and Benjamin Grossman-Ponemon. 2018.
+> FRC: A High-Performance Concurrent Parallel Deferred Reference Counter for C++.
+> In Proceedings of the 2018 International Symposium on Memory Management
+> (ISMM '18). ACM, New York, NY, USA, 14-28.
+> https://doi.org/10.1145/3210563.3210569
 
