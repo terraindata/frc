@@ -1,6 +1,6 @@
 /*
  * File: PrivatePointer.h
- * Copyright 2016-7 Terrain Data, Inc.
+ * Copyright 2016-2018 Terrain Data, Inc.
  *
  * This file is part of FRC, a fast reference counting library for C++
  * (see https://github.com/terraindata/frc).

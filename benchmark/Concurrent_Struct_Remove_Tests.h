@@ -1,6 +1,6 @@
 /*
  * File: Concurrent_Struct_Remove_Tests.h
- * Copyright 2017 Terrain Data, Inc.
+ * Copyright 2017, 2018 Terrain Data, Inc.
  *
  * This file is part of FRC, a fast reference counting library for C++
  * (see https://github.com/terraindata/frc).
