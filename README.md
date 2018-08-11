@@ -9,7 +9,7 @@ smart pointer types with performance that greatly exceeds that of
 `std::shared_ptr` and `boost::atomic_shared_ptr`, for example; in
 particular, FRC's reference-counted pointer types excel in concurrent
 scenarios (such as concurrent data structures).  A research paper describing
-FRC in detail is currently in review.
+FRC in detail is linked at the bottom of this file.
 
 ## Organization
 
@@ -64,7 +64,7 @@ send us a citation for your paper!
 
 > Charles Tripp, David Hyde, and Benjamin Grossman-Ponemon. 2018.
 > FRC: A High-Performance Concurrent Parallel Deferred Reference Counter for C++.
-> In Proceedings of the 2018 International Symposium on Memory Management
+> In Proceedings of the 2018 ACM SIGPLAN International Symposium on Memory Management
 > (ISMM '18). ACM, New York, NY, USA, 14-28.
 > https://doi.org/10.1145/3210563.3210569
 
