@@ -60,7 +60,7 @@ Please see the included [COPYING.md](COPYING.md).
 ## Using in a Research Project
 
 For details on FRC, download our research paper for free
-[here](https://dl.acm.org/authorize?N666398).
+[here](https://dl.acm.org/doi/10.1145/3299706.3210569?cid=99659276755).
 If you use FRC in a research project, please cite our paper (citation below),
 and please let us know about your paper!
 
