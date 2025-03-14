@@ -128,20 +128,15 @@ TEST_CASE(test_single_thread_push_pop)
         }
         else
         {
-            // pop if not empty
-            if (ref_top > 0 && !xrc_decrement_stack_is_empty(&ds))
+            // pop
+            void* got;
+            bool  ok = xrc_decrement_stack_pop(&ds, &got);
+            TEST_ASSERT(ok == (ref_top > 0), "pop - empty mismatch in test1");
+            if (ok)
             {
                 void* expected = ref_stack[--ref_top];
-                void* got;
-                bool  ok = xrc_decrement_stack_pop(&ds, &got);
                 TEST_ASSERT(ok, "pop fail in test1");
                 TEST_ASSERT(got == expected, "pop mismatch in test1");
-            }
-            else
-            {
-                void* dummy;
-                bool  ok = xrc_decrement_stack_pop(&ds, &dummy);
-                TEST_ASSERT(!ok, "pop succeeded but ref empty in test1");
             }
         }
         // length check
@@ -152,15 +147,17 @@ TEST_CASE(test_single_thread_push_pop)
     }
 
     // final drain
+
+    void* got;
     while (ref_top > 0)
     {
         void* expected = ref_stack[--ref_top];
-        void* got;
-        bool  ok = xrc_decrement_stack_pop(&ds, &got);
+        bool  ok       = xrc_decrement_stack_pop(&ds, &got);
         TEST_ASSERT(ok, "final pop fail test1");
         TEST_ASSERT(got == expected, "final pop mismatch test1");
     }
     TEST_ASSERT(xrc_decrement_stack_is_empty(&ds), "not empty end test1");
+    TEST_ASSERT(xrc_decrement_stack_pop(&ds, &got) == false, "pop from empty test1");
     fprintf(stderr, "[test_single_thread_push_pop] PASS\n");
 }
 
