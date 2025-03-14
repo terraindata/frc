@@ -8,7 +8,7 @@
 #include <stdatomic.h>
 #include <stdbool.h>
 #include <stddef.h>
-#include "settings.h"
+#include <xrc/settings.h>
 
 
 /**
@@ -18,24 +18,24 @@
  *
  * Other thief threads can concurrently steal elements from the tail.
  */
-typedef struct xrc_decrement_stack
+typedef struct xrc_impl_decrement_stack
 {
     // Thieves do a CAS-based steal from the tail.
     // The owner never increments or decrements tail_index in this design.
     atomic_uint_fast64_t tail_index;
 
-    xrc_cache_line_padding pad_0;
+    xrc_impl_cache_line_padding pad_0;
 
     // Owner manipulates `head_index` for push/pop at the head.
     atomic_uint_fast64_t head_index;
 
     // The ring buffer storing `void*` elements
     void* buffer[XRC_PER_THREAD_DECREMENT_STACK_LENGTH];
-} xrc_decrement_stack;
+} xrc_impl_decrement_stack;
 
 
-static void xrc_decrement_stack_initialize(
-    xrc_decrement_stack* target
+static void xrc_impl_decrement_stack_initialize(
+    xrc_impl_decrement_stack* target
     )
 {
     atomic_store_explicit(&target->head_index, 0, memory_order_relaxed);
@@ -47,8 +47,8 @@ static void xrc_decrement_stack_initialize(
  * Wait-free.
  * Only called by the owner of the stack.
  */
-static void xrc_decrement_stack_push(
-    xrc_decrement_stack* target,
+static void xrc_impl_decrement_stack_push(
+    xrc_impl_decrement_stack* target,
     void*                element
     )
 {
@@ -68,8 +68,8 @@ static void xrc_decrement_stack_push(
  * Wait-free.
  * Only called by the owner of the stack.
  */
-static bool xrc_decrement_stack_pop(
-    xrc_decrement_stack* target,
+static bool xrc_impl_decrement_stack_pop(
+    xrc_impl_decrement_stack* target,
     void**               element
     )
 {
@@ -96,8 +96,8 @@ static bool xrc_decrement_stack_pop(
  * Should only be called by the owner of the stack.
  * Lock-free, but can spin on contention for the tail.
  */
-static void xrc_decrement_stack_enqueue(
-    xrc_decrement_stack* target,
+static void xrc_impl_decrement_stack_enqueue(
+    xrc_impl_decrement_stack* target,
     void*                element
     )
 {
@@ -107,7 +107,7 @@ static void xrc_decrement_stack_enqueue(
         if (tail == 0)
         {
             // special case: tail is at zero, so push instead of underflowing tail
-            xrc_decrement_stack_push(target, element);
+            xrc_impl_decrement_stack_push(target, element);
             break;
         }
 
@@ -144,8 +144,8 @@ static void xrc_decrement_stack_enqueue(
  * Wait-free but will fail under contention on the tail.
  * Can also fail spuriously.
  */
-static bool xrc_decrement_stack_steal(
-    xrc_decrement_stack* target,
+static bool xrc_impl_decrement_stack_steal(
+    xrc_impl_decrement_stack* target,
     void**               element
     )
 {
@@ -177,8 +177,8 @@ static bool xrc_decrement_stack_steal(
 }
 
 
-static size_t xrc_decrement_stack_length(
-    xrc_decrement_stack* target
+static size_t xrc_impl_decrement_stack_length(
+    xrc_impl_decrement_stack* target
     )
 {
     size_t head = atomic_load_explicit(&target->head_index, memory_order_acquire);
@@ -189,8 +189,8 @@ static size_t xrc_decrement_stack_length(
     return head - tail;
 }
 
-static bool xrc_decrement_stack_is_empty(
-    xrc_decrement_stack* target
+static bool xrc_impl_decrement_stack_is_empty(
+    xrc_impl_decrement_stack* target
     )
 {
     size_t head = atomic_load_explicit(&target->head_index, memory_order_acquire);
@@ -199,9 +199,9 @@ static bool xrc_decrement_stack_is_empty(
     return head <= tail;
 }
 
-static bool xrc_decrement_stack_is_full(
-    xrc_decrement_stack* target
+static bool xrc_impl_decrement_stack_is_full(
+    xrc_impl_decrement_stack* target
     )
 {
-    return xrc_decrement_stack_length(target) >= (XRC_PER_THREAD_DECREMENT_STACK_LENGTH - 2);
+    return xrc_impl_decrement_stack_length(target) >= (XRC_PER_THREAD_DECREMENT_STACK_LENGTH - 2);
 }

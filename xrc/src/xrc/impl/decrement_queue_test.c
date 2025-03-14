@@ -11,8 +11,8 @@
 
 void test_randomized_operations()
 {
-    xrc_decrement_queue queue;
-    xrc_decrement_queue_initialize(&queue);
+    xrc_impl_decrement_queue queue;
+    xrc_impl_decrement_queue_initialize(&queue);
 
     const size_t num_operations = 10000;
     srand(time(NULL));
@@ -25,8 +25,8 @@ void test_randomized_operations()
 
     for (size_t i = 0; i < num_operations; i++)
     {
-        assert(length == xrc_decrement_queue_length(&queue));
-        assert((length == 0) == xrc_decrement_queue_is_empty(&queue));
+        assert(length == xrc_impl_decrement_queue_length(&queue));
+        assert((length == 0) == xrc_impl_decrement_queue_is_empty(&queue));
 
         if (rand() % 10 == 0)
             epoch++;
@@ -42,11 +42,11 @@ void test_randomized_operations()
             head                 = (head + 1) % test_queue_capacity;
             ++length;
 
-            xrc_decrement_queue_push(&queue, element);
+            xrc_impl_decrement_queue_push(&queue, element);
         }
         else
         {
-            xrc_decrement_queue_mark_epoch_of_new_decrements(&queue, epoch);
+            xrc_impl_decrement_queue_mark_epoch_of_new_decrements(&queue, epoch);
 
             for (size_t j = head; j != tail;)
             {
@@ -59,7 +59,7 @@ void test_randomized_operations()
             // Pop operation
             void*         element;
             uint_fast64_t oldest_decrement_epoch;
-            int           pop_result = xrc_decrement_queue_pop(
+            int           pop_result = xrc_impl_decrement_queue_pop(
                 &queue,
                 oldest_complete_scan_epoch,
                 &element,

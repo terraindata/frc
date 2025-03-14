@@ -25,7 +25,7 @@ endif ()
 
 include_directories(..)
 
-aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR} SOURCE_FILES)
+file(GLOB_RECURSE SOURCE_FILES ${CMAKE_CURRENT_SOURCE_DIR}/*.c)
 
 # Separate test files and source files
 set(TEST_FILES)

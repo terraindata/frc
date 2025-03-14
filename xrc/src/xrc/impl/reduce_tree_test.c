@@ -11,19 +11,19 @@
 
 void test_reduce_tree_init()
 {
-    xrc_reduce_tree tree;
-    xrc_reduce_tree_init(&tree, 4, 0);
+    xrc_impl_reduce_tree tree;
+    xrc_impl_reduce_tree_init(&tree, 4, 0);
     assert(tree.power == 4);
     assert(tree.nodes != NULL);
-    xrc_reduce_tree_destroy(&tree);
+    xrc_impl_reduce_tree_destroy(&tree);
 }
 
 void test_reduce_tree_min_concurrency_single_threaded()
 {
     size_t power = 12;
 
-    xrc_reduce_tree tree;
-    xrc_reduce_tree_init(&tree, power, UINT64_MAX);
+    xrc_impl_reduce_tree tree;
+    xrc_impl_reduce_tree_init(&tree, power, UINT64_MAX);
 
     uint_fast64_t* leaf_values = (uint_fast64_t*)malloc(sizeof(uint_fast64_t) * tree.num_leaves);
     for (size_t i      = 0; i < tree.num_leaves; i++)
@@ -39,18 +39,18 @@ void test_reduce_tree_min_concurrency_single_threaded()
         if (rand() % 16 == 0)
         {
             leaf_values[leaf_index] = value;
-            xrc_reduce_tree_set_leaf_value(&tree, leaf_index, value);
+            xrc_impl_reduce_tree_set_leaf_value(&tree, leaf_index, value);
         }
         else
         {
             uint_fast64_t old_value = leaf_values[leaf_index];
             leaf_values[leaf_index] = old_value > value ? old_value : value;
-            xrc_reduce_tree_update_min(&tree, leaf_index, value);
+            xrc_impl_reduce_tree_update_min(&tree, leaf_index, value);
         }
 
         if (rand() % 8 == 0)
         {
-            uint_fast64_t current_min = xrc_reduce_tree_get_min(&tree);
+            uint_fast64_t current_min = xrc_impl_reduce_tree_get_min(&tree);
 
             uint_fast64_t verify_min = UINT64_MAX;
             for (size_t j  = 0; j < tree.num_leaves; j++)
@@ -60,13 +60,13 @@ void test_reduce_tree_min_concurrency_single_threaded()
         }
     }
 
-    xrc_reduce_tree_destroy(&tree);
+    xrc_impl_reduce_tree_destroy(&tree);
     free(leaf_values);
 }
 
 typedef struct
 {
-    xrc_reduce_tree*      t;
+    xrc_impl_reduce_tree*      t;
     size_t                num_updates;
     size_t                leaf_index;
     atomic_uint_fast64_t* leaf_values;
@@ -77,24 +77,24 @@ static void* update_worker(
     )
 {
     thread_info*     info             = (thread_info*)arg;
-    xrc_reduce_tree* tree             = info->t;
+    xrc_impl_reduce_tree* tree             = info->t;
     size_t           leaf_index       = info->leaf_index;
     atomic_uint_fast64_t * leaf_value = info->leaf_values + info->leaf_index;
 
     uint_fast64_t value = 0;
-    xrc_reduce_tree_set_leaf_value(tree, leaf_index, value);
+    xrc_impl_reduce_tree_set_leaf_value(tree, leaf_index, value);
 
     for (size_t i = 0; i < info->num_updates; i++)
     {
         value += rand() % 1024;
 
         atomic_store_explicit(leaf_value, value, memory_order_release);
-        xrc_reduce_tree_update_min(tree, leaf_index, value);
+        xrc_impl_reduce_tree_update_min(tree, leaf_index, value);
 
 
         if (rand() % 32 == 0)
         {
-            uint_fast64_t current_min = xrc_reduce_tree_get_min(tree);
+            uint_fast64_t current_min = xrc_impl_reduce_tree_get_min(tree);
 
             assert(current_min >= value);
 
@@ -123,8 +123,8 @@ void test_reduce_tree_min_concurrency()
     size_t num_updates_per_thread = 10000;
 
     pthread_t       threads[num_threads];
-    xrc_reduce_tree tree;
-    xrc_reduce_tree_init(&tree, power, UINT64_MAX);
+    xrc_impl_reduce_tree tree;
+    xrc_impl_reduce_tree_init(&tree, power, UINT64_MAX);
 
     atomic_uint_fast64_t * leaf_values = (atomic_uint_fast64_t*)malloc(sizeof(atomic_uint_fast64_t) * tree.num_leaves);
     for (size_t i = 0; i < tree.num_leaves; i++)
@@ -146,7 +146,7 @@ void test_reduce_tree_min_concurrency()
         pthread_join(threads[i], NULL);
 
 
-    uint_fast64_t current_min = xrc_reduce_tree_get_min(&tree);
+    uint_fast64_t current_min = xrc_impl_reduce_tree_get_min(&tree);
     uint_fast64_t verify_min  = UINT64_MAX;
     for (size_t j = 0; j < tree.num_leaves; j++)
     {
@@ -156,7 +156,7 @@ void test_reduce_tree_min_concurrency()
 
     assert(current_min == verify_min);
 
-    xrc_reduce_tree_destroy(&tree);
+    xrc_impl_reduce_tree_destroy(&tree);
     free(leaf_values);
 }
 

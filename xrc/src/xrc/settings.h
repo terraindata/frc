@@ -35,16 +35,16 @@
 #include <stdint.h>
 
 
-typedef XRC_REFERENCE_COUNT   xrc_reference_count;
-typedef XRC_LENGTH_CODE       xrc_length_code;
-typedef XRC_ALLOCATION_OFFSET xrc_allocation_offset;
-typedef XRC_ALLOCATION_FLAGS  xrc_allocation_flags;
-// typedef XRC_ALLOCATION_METADATA xrc_allocation_metadata;
+typedef XRC_REFERENCE_COUNT   xrc_impl_reference_count;
+typedef XRC_LENGTH_CODE       xrc_impl_length_code;
+typedef XRC_ALLOCATION_OFFSET xrc_impl_allocation_offset;
+typedef XRC_ALLOCATION_FLAGS  xrc_impl_allocation_flags;
+// typedef XRC_ALLOCATION_METADATA xrc_impl_allocation_metadata;
 
 
-typedef uint_fast64_t        xrc_sequence;
-typedef atomic_uint_fast64_t xrc_sequence_atomic;
+typedef uint_fast64_t        xrc_impl_sequence;
+typedef atomic_uint_fast64_t xrc_impl_sequence_atomic;
 
-typedef uint_fast64_t xrc_cache_line_padding[XRC_CACHE_LINE_PADDING_SIZE / sizeof(uint_fast64_t)];
+typedef uint_fast64_t xrc_impl_cache_line_padding[XRC_CACHE_LINE_PADDING_SIZE / sizeof(uint_fast64_t)];
 
-#define XRC_MAX_CODED_SIZE (((size_t)1 << (CHAR_BIT * sizeof(xrc_length_code))) - 2)
+#define XRC_MAX_CODED_SIZE (((size_t)1 << (CHAR_BIT * sizeof(xrc_impl_length_code))) - 2)

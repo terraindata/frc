@@ -18,12 +18,12 @@ static void test_single_thread(
 {
     size_t stack_size = 10000;
 
-    xrc_atomic_stack stack;
-    xrc_atomic_stack_init(&stack);
+    xrc_impl_atomic_stack stack;
+    xrc_impl_atomic_stack_init(&stack);
 
     // Single-thread: randomly interleaved push / pop
 
-    xrc_stack_node* nodes = (xrc_stack_node*)malloc(sizeof(xrc_stack_node) * stack_size);
+    xrc_impl_stack_node* nodes = (xrc_impl_stack_node*)malloc(sizeof(xrc_impl_stack_node) * stack_size);
 
     void** mirror_stack      = (void**)malloc(sizeof(void*) * stack_size);
     size_t mirror_stack_head = 0;
@@ -41,16 +41,16 @@ static void test_single_thread(
 
         if (mirror_stack_head < stack_size && rand() % 1000 < push_threshold)
         {
-            xrc_stack_node* node            = &nodes[mirror_stack_head];
+            xrc_impl_stack_node* node            = &nodes[mirror_stack_head];
             mirror_stack[mirror_stack_head] = data;
             node->data                      = data;
             mirror_stack_head++;
 
-            xrc_atomic_stack_push_intrusive(&stack, node);
+            xrc_impl_atomic_stack_push_intrusive(&stack, node);
         }
         else
         {
-            xrc_stack_node* popped = xrc_atomic_stack_pop_intrusive(&stack);
+            xrc_impl_stack_node* popped = xrc_impl_atomic_stack_pop_intrusive(&stack);
 
             if (mirror_stack_head == 0)
             {
@@ -69,7 +69,7 @@ static void test_single_thread(
 
     for (;;)
     {
-        xrc_stack_node* popped = xrc_atomic_stack_pop_intrusive(&stack);
+        xrc_impl_stack_node* popped = xrc_impl_atomic_stack_pop_intrusive(&stack);
 
         if (mirror_stack_head == 0)
         {
@@ -85,7 +85,7 @@ static void test_single_thread(
     }
 
     for (size_t i = 0; i < 100; ++i)
-        assert(xrc_atomic_stack_pop_intrusive(&stack) == NULL);
+        assert(xrc_impl_atomic_stack_pop_intrusive(&stack) == NULL);
 
     free(nodes);
     free(mirror_stack);
@@ -101,8 +101,8 @@ static void test_single_thread(
 
 typedef struct
 {
-    xrc_atomic_stack* stack;
-    xrc_stack_node**  local_nodes;
+    xrc_impl_atomic_stack* stack;
+    xrc_impl_stack_node**  local_nodes;
     size_t            local_head;
     size_t            worker_id;
     size_t            push_counter;
@@ -120,17 +120,17 @@ static void* worker_func(
         if (wd->local_head >= LOCAL_STACK_SIZE || (wd->local_head > 0 && rand() % 100 < 60))
         {
             wd->local_head--;
-            xrc_stack_node* node = wd->local_nodes[wd->local_head];
+            xrc_impl_stack_node* node = wd->local_nodes[wd->local_head];
             uint64_t        data = ((uint64_t)++wd->push_counter << TAG_SHIFT) | wd->worker_id;
             node->data           = (void*)(uintptr_t)data;
-            xrc_atomic_stack_push_intrusive(wd->stack, node);
+            xrc_impl_atomic_stack_push_intrusive(wd->stack, node);
             wd->push_success++;
 
             // printf("worker %zu pushed %p : %zu\n", wd->worker_id, node, data);
         }
         else
         {
-            xrc_stack_node* popped = xrc_atomic_stack_pop_intrusive(wd->stack);
+            xrc_impl_stack_node* popped = xrc_impl_atomic_stack_pop_intrusive(wd->stack);
             if (popped != NULL)
             {
                 wd->local_nodes[wd->local_head++] = popped;
@@ -145,16 +145,16 @@ static void* worker_func(
 
 static void concurrency_local_stack_test()
 {
-    xrc_atomic_stack stack;
-    xrc_atomic_stack_init(&stack);
+    xrc_impl_atomic_stack stack;
+    xrc_impl_atomic_stack_init(&stack);
 
     pthread_t     threads[NUM_WORKERS];
     worker_data_t wdata[NUM_WORKERS];
 
     size_t num_nodes = NUM_WORKERS * LOCAL_NODES_PER_WORKER;
     // Initialize workers and give them a local stack of pre-allocated nodes
-    xrc_stack_node*  all_nodes           = malloc(sizeof(xrc_stack_node) * num_nodes);
-    xrc_stack_node** worker_local_stacks = malloc(sizeof(xrc_stack_node*) * NUM_WORKERS * LOCAL_STACK_SIZE);
+    xrc_impl_stack_node*  all_nodes           = malloc(sizeof(xrc_impl_stack_node) * num_nodes);
+    xrc_impl_stack_node** worker_local_stacks = malloc(sizeof(xrc_impl_stack_node*) * NUM_WORKERS * LOCAL_STACK_SIZE);
 
     for (size_t i = 0; i < NUM_WORKERS; i++)
     {
@@ -184,11 +184,11 @@ static void concurrency_local_stack_test()
         total_popped += wdata[i].pop_success;
     }
     size_t           remaining   = total_pushed - total_popped;
-    xrc_stack_node** final_nodes = malloc(sizeof(xrc_stack_node*) * remaining);
+    xrc_impl_stack_node** final_nodes = malloc(sizeof(xrc_impl_stack_node*) * remaining);
     size_t           index       = 0;
     while (1)
     {
-        xrc_stack_node* node = xrc_atomic_stack_pop_intrusive(&stack);
+        xrc_impl_stack_node* node = xrc_impl_atomic_stack_pop_intrusive(&stack);
         if (!node)
             break;
         final_nodes[index++] = node;

@@ -10,28 +10,28 @@
 #include <stdatomic.h>
 #include <stddef.h>
 #include <malloc.h>
-#include "settings.h"
+#include <xrc/settings.h>
 
-typedef struct xrc_reduce_tree_node
+typedef struct xrc_impl_reduce_tree_node
 {
     atomic_uint_fast64_t   value;
-    xrc_cache_line_padding padding;
-} xrc_reduce_tree_node;
+    xrc_impl_cache_line_padding padding;
+} xrc_impl_reduce_tree_node;
 
 
-typedef struct xrc_reduce_tree
+typedef struct xrc_impl_reduce_tree
 {
     size_t power;
     // size_t                num_internal_nodes;
     size_t                num_leaves;
-    xrc_reduce_tree_node* nodes;
-} xrc_reduce_tree;
+    xrc_impl_reduce_tree_node* nodes;
+} xrc_impl_reduce_tree;
 
 
 /**
  * rounds a number up to the nearest power of two
  */
-static size_t xrc_reduce_tree_round_up_to_power_of_two(
+static size_t xrc_impl_reduce_tree_round_up_to_power_of_two(
     size_t v
     )
 {
@@ -52,8 +52,8 @@ static size_t xrc_reduce_tree_round_up_to_power_of_two(
 }
 
 
-static void xrc_reduce_tree_init(
-    xrc_reduce_tree* tree,
+static void xrc_impl_reduce_tree_init(
+    xrc_impl_reduce_tree* tree,
     size_t           power,
     uint_fast64_t    initial_value
     )
@@ -61,7 +61,7 @@ static void xrc_reduce_tree_init(
     tree->power      = power;
     tree->num_leaves = 1 << power;
     size_t num_nodes = 2 << power;
-    tree->nodes      = (xrc_reduce_tree_node*)malloc(num_nodes * sizeof(xrc_reduce_tree_node));
+    tree->nodes      = (xrc_impl_reduce_tree_node*)malloc(num_nodes * sizeof(xrc_impl_reduce_tree_node));
     for (size_t i = num_nodes; i > 0;)
     {
         --i;
@@ -73,8 +73,8 @@ static void xrc_reduce_tree_init(
     }
 }
 
-static void xrc_reduce_tree_destroy(
-    xrc_reduce_tree* tree
+static void xrc_impl_reduce_tree_destroy(
+    xrc_impl_reduce_tree* tree
     )
 {
     tree->power = 0;
@@ -82,16 +82,16 @@ static void xrc_reduce_tree_destroy(
     tree->nodes = NULL;
 }
 
-static uint_fast64_t xrc_reduce_tree_get_min(
-    xrc_reduce_tree* tree
+static uint_fast64_t xrc_impl_reduce_tree_get_min(
+    xrc_impl_reduce_tree* tree
     )
 {
     return atomic_load_explicit(&tree->nodes[1].value, memory_order_acquire);
 }
 
 
-static uint_fast64_t xrc_reduce_tree_get_leaf_value(
-    xrc_reduce_tree* target,
+static uint_fast64_t xrc_impl_reduce_tree_get_leaf_value(
+    xrc_impl_reduce_tree* target,
     size_t           leaf_index,
     memory_order     order
     )
@@ -102,8 +102,8 @@ static uint_fast64_t xrc_reduce_tree_get_leaf_value(
         );
 }
 
-static int xrc_reduce_tree_update_min_from_leaf(
-    xrc_reduce_tree* target,
+static int xrc_impl_reduce_tree_update_min_from_leaf(
+    xrc_impl_reduce_tree* target,
     size_t           leaf_index,
     uint_fast64_t    value
     )
@@ -145,8 +145,8 @@ static int xrc_reduce_tree_update_min_from_leaf(
     return 1; // success, min updated
 }
 
-static int xrc_reduce_tree_set_leaf_value(
-    xrc_reduce_tree* target,
+static int xrc_impl_reduce_tree_set_leaf_value(
+    xrc_impl_reduce_tree* target,
     size_t           leaf_index,
     uint_fast64_t    value
     )
@@ -157,15 +157,15 @@ static int xrc_reduce_tree_set_leaf_value(
         memory_order_release
         );
 
-    return xrc_reduce_tree_update_min_from_leaf(
+    return xrc_impl_reduce_tree_update_min_from_leaf(
         target,
         leaf_index,
         value
         );
 }
 
-static int xrc_reduce_tree_update_min(
-    xrc_reduce_tree* target,
+static int xrc_impl_reduce_tree_update_min(
+    xrc_impl_reduce_tree* target,
     size_t           leaf_index,
     uint_fast64_t    value
     )
@@ -188,15 +188,15 @@ static int xrc_reduce_tree_update_min(
         memory_order_acquire
         ));
 
-    return xrc_reduce_tree_update_min_from_leaf(
+    return xrc_impl_reduce_tree_update_min_from_leaf(
         target,
         leaf_index,
         value
         );
 }
 
-static size_t xrc_reduce_tree_get_max_index(
-    xrc_reduce_tree* target,
+static size_t xrc_impl_reduce_tree_get_max_index(
+    xrc_impl_reduce_tree* target,
     size_t           tiebreaker
     )
 {
@@ -222,8 +222,8 @@ static size_t xrc_reduce_tree_get_max_index(
     return index - target->num_leaves;
 }
 
-static int xrc_reduce_tree_get_index_less_than_or_equal_to_value(
-    xrc_reduce_tree* target,
+static int xrc_impl_reduce_tree_get_index_less_than_or_equal_to_value(
+    xrc_impl_reduce_tree* target,
     int              tiebreaker,
     uint_fast64_t    value
     )
