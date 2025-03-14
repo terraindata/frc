@@ -28,7 +28,7 @@ void xrc_hazard_set_initialize(
 }
 
 
-void xrc_clear_hazard_set(
+void xrc_hazard_set_clear(
     xrc_hazard_set* hazard_set
     )
 {

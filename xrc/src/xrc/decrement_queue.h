@@ -11,8 +11,8 @@
 
 typedef struct xrc_decrement_queue
 {
-    size_t        head;
     size_t        tail;
+    size_t        head;
     size_t        collection_threshold;
     uint_fast64_t decrement_epochs[XRC_PER_THREAD_DECREMENT_QUEUE_CAPACITY];
     void*         decrement_targets[XRC_PER_THREAD_DECREMENT_QUEUE_CAPACITY];
@@ -23,23 +23,23 @@ static int xrc_decrement_queue_is_empty(
     xrc_decrement_queue* target
     )
 {
-    return target->head == target->tail;
+    return target->tail == target->head;
 }
 
 static int xrc_decrement_queue_is_full(
     xrc_decrement_queue* target
     )
 {
-    return (target->tail + 1) % XRC_PER_THREAD_DECREMENT_QUEUE_CAPACITY == target->head;
+    return (target->head + 1) % XRC_PER_THREAD_DECREMENT_QUEUE_CAPACITY == target->tail;
 }
 
 static size_t xrc_decrement_queue_length(
     xrc_decrement_queue* target
     )
 {
-    size_t head = target->head;
     size_t tail = target->tail;
-    return (tail >= head) ? (tail - head) : (tail + XRC_PER_THREAD_DECREMENT_QUEUE_CAPACITY - head);
+    size_t head = target->head;
+    return (head >= tail) ? (head - tail) : (head + XRC_PER_THREAD_DECREMENT_QUEUE_CAPACITY - tail);
 }
 
 static size_t xrc_decrement_queue_headroom(
@@ -53,8 +53,8 @@ static void xrc_decrement_queue_initialize(
     xrc_decrement_queue* target
     )
 {
-    target->head                 = 0;
     target->tail                 = 0;
+    target->head                 = 0;
     target->collection_threshold = XRC_DECREMENT_QUEUE_BACKPRESSURE_FRACTION;
     for (size_t i = 0; i < XRC_PER_THREAD_DECREMENT_QUEUE_CAPACITY; i++)
     {
@@ -65,17 +65,17 @@ static void xrc_decrement_queue_initialize(
 
 static bool xrc_decrement_queue_push(
     xrc_decrement_queue* target,
-    uint_fast64_t        epoch,
-    void*                element
+    // uint_fast64_t        epoch,
+    void* element
     )
 {
     // assert(!xrc_decrement_queue_is_full(target));
-    size_t tail                     = target->tail;
-    target->decrement_epochs[tail]  = epoch;
-    target->decrement_targets[tail] = element;
-    target->tail                    = (tail + 1) % XRC_PER_THREAD_DECREMENT_QUEUE_CAPACITY;
+    size_t head                     = target->head;
+    target->decrement_epochs[head]  = 0;
+    target->decrement_targets[head] = element;
+    target->head                    = (head + 1) % XRC_PER_THREAD_DECREMENT_QUEUE_CAPACITY;
 
-    return target->tail == target->collection_threshold;
+    return target->head == target->collection_threshold;
 }
 
 static void xrc_decrement_queue_set_threshold(
@@ -90,14 +90,14 @@ static void xrc_decrement_queue_set_threshold(
                    XRC_DECREMENT_QUEUE_BACKPRESSURE_FRACTION;
     }
 
-    target->collection_threshold = (target->tail + interval) % XRC_PER_THREAD_DECREMENT_QUEUE_CAPACITY;
+    target->collection_threshold = (target->head + interval) % XRC_PER_THREAD_DECREMENT_QUEUE_CAPACITY;
 }
 
 static bool xrc_decrement_queue_is_at_threshold(
     xrc_decrement_queue* target
     )
 {
-    return target->tail == target->collection_threshold;
+    return target->head == target->collection_threshold;
 }
 
 static void xrc_decrement_queue_mark_epoch_of_new_decrements(
@@ -106,13 +106,12 @@ static void xrc_decrement_queue_mark_epoch_of_new_decrements(
     )
 {
     // mark epoch bound on new decrements
-    for (size_t i = target->tail; i != target->head;)
+    for (size_t i = target->head; i != target->tail;)
     {
         i = (i - 1) % XRC_PER_THREAD_DECREMENT_QUEUE_CAPACITY;
         if (target->decrement_epochs[i] != 0)
             break;
         target->decrement_epochs[i] = epoch;
-        --i;
     }
 }
 
@@ -123,22 +122,21 @@ static int xrc_decrement_queue_pop(
     uint_fast64_t*       oldest_decrement_epoch
     )
 {
-    size_t head = target->head;
+    size_t tail = target->tail;
 
-    if (head == target->tail)
+    if (tail == target->head)
         return -1; // empty
 
-    uint_fast64_t decrement_epoch = target->decrement_epochs[head];
-    if (decrement_epoch >= oldest_complete_scan_epoch)
+    *oldest_decrement_epoch = target->decrement_epochs[tail];
+    if (*oldest_decrement_epoch >= oldest_complete_scan_epoch)
     {
         // ineligible
-        *oldest_decrement_epoch = decrement_epoch;
         return 1;
     }
 
-    *element = target->decrement_targets[head];
+    *element = target->decrement_targets[tail];
     // target->decrement_epochs[head]  = UINT64_MAX;
     // target->decrement_targets[head] = NULL;
-    target->head = (head + 1) % XRC_PER_THREAD_DECREMENT_QUEUE_CAPACITY;
+    target->tail = (tail + 1) % XRC_PER_THREAD_DECREMENT_QUEUE_CAPACITY;
     return 0; // success
 }

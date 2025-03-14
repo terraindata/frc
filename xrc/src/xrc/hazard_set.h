@@ -28,27 +28,8 @@ typedef struct xrc_hazard_set
 
 extern thread_local xrc_hazard** xrc_thread_local_hazard_set_head;
 
-extern void xrc_hazard_set_initialize(
-    xrc_hazard_set* hazard_set
-    );
 
-extern void xrc_clear_hazard_set(
-    xrc_hazard_set* hazard_set
-    );
-
-static void xrc_push_hazard(
-    xrc_hazard* target
-    )
-{
-    *(++xrc_thread_local_hazard_set_head) = target;
-}
-
-static xrc_hazard* xrc_pop_hazard()
-{
-    return *(xrc_thread_local_hazard_set_head--);
-}
-
-static void xrc_hazard_memory(
+static void xrc_hazard_publish(
     xrc_hazard* hazard,
     void*       source
     )
@@ -56,7 +37,7 @@ static void xrc_hazard_memory(
     atomic_store_explicit(&hazard->pointer, (intptr_t)source, memory_order_release);
 }
 
-static void* xrc_get_and_hazard_memory(
+static void* xrc_hazard_publish_from(
     xrc_hazard*      hazard,
     atomic_intptr_t* source,
     memory_order     load_memory_order
@@ -76,13 +57,13 @@ static void* xrc_get_and_hazard_memory(
         );
 
     // unlock and store pointer to hazard!
-    xrc_hazard_memory(hazard, source_pointer);
+    xrc_hazard_publish(hazard, source_pointer);
 
     return source_pointer;
 }
 
 
-static void xrc_release_hazard(
+static void xrc_hazard_release(
     xrc_hazard* target
     )
 {
@@ -93,10 +74,24 @@ static void xrc_release_hazard(
             (intptr_t)NULL,
             memory_order_relaxed
             );
-        xrc_push_hazard(target);
+        *(++xrc_thread_local_hazard_set_head) = target; // push hazard onto freelist
     }
     else
     {
         target->thread_local_reference_count--;
     }
+}
+
+
+extern void xrc_hazard_set_initialize(
+    xrc_hazard_set* hazard_set
+    );
+
+extern void xrc_hazard_set_clear(
+    xrc_hazard_set* hazard_set
+    );
+
+static xrc_hazard* xrc_hazard_set_allocate_hazard()
+{
+    return *(xrc_thread_local_hazard_set_head--);
 }

@@ -31,7 +31,7 @@ typedef struct xrc_reduce_tree
 /**
  * rounds a number up to the nearest power of two
  */
-static inline size_t xrc_reduce_tree_round_up_to_power_of_two(
+static size_t xrc_reduce_tree_round_up_to_power_of_two(
     size_t v
     )
 {

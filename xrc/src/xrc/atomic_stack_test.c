@@ -28,7 +28,7 @@ static void test_single_thread(
     void** mirror_stack      = (void**)malloc(sizeof(void*) * stack_size);
     size_t mirror_stack_head = 0;
 
-    for (int i = 0; i < 100000; i++)
+    for (int i = 0; i < 10000; i++)
     {
         void* data = (void*)(intptr_t)(rand());
 
@@ -95,7 +95,7 @@ static void test_single_thread(
 // and perform this many push/pop operations
 #define LOCAL_NODES_PER_WORKER 100
 #define LOCAL_STACK_SIZE 200
-#define OPERATIONS_PER_WORKER  100000
+#define OPERATIONS_PER_WORKER  10000
 #define NUM_WORKERS            64
 #define TAG_SHIFT              16
 

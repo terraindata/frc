@@ -10,7 +10,6 @@
 #include "atomic_stack.h"
 #include "settings.h"
 #include "hazard_set.h"
-#include "atomic_stack.h"
 #include "decrement_queue.h"
 #include "reduce_tree.h"
 
@@ -137,11 +136,12 @@ static xrc_extended_header* xrc_allocation_get_extended_header(
 }
 
 static void* xrc_do_alloc(
-    size_t                  size,
-    size_t                  alignment,
-    size_t                  header_size,
-    size_t                  header_alignment,
-    xrc_allocation_metadata metadata
+    size_t               size,
+    size_t               alignment,
+    size_t               header_size,
+    size_t               header_alignment,
+    xrc_length_code      length_code,
+    xrc_allocation_flags flags
     )
 {
     size_t const allocation_alignment = header_alignment > alignment ? header_alignment : alignment;
@@ -166,8 +166,9 @@ static void* xrc_do_alloc(
     // initialize header
     xrc_allocation_header* header = xrc_allocation_get_header(payload);
     atomic_store_explicit(&header->count, 0, memory_order_relaxed);
-    header->metadata        = metadata;
-    header->metadata.offset = (xrc_allocation_offset)(offset);
+    header->metadata.length_code = length_code;
+    header->metadata.flags       = flags;
+    header->metadata.offset      = (xrc_allocation_offset)(offset);
 
     return payload;
 }
@@ -181,55 +182,40 @@ static void* xrc_alloc(
     xrc_allocation_flags flags
     )
 {
-    void*  payload;
-    size_t header_alignment, header_size;
-
-
+    void* payload;
     if (dispose == NULL)
     {
-        xrc_allocation_metadata metadata;
-        metadata.length_code = 0;
-        metadata.flags       = flags;
-        metadata.offset      = 0;
-
         payload = xrc_do_alloc(
             size,
             alignment,
             sizeof(xrc_allocation_header),
             alignof(xrc_allocation_header),
-            metadata
+            0,
+            flags
             );
     }
     else
     {
         if (length < XRC_LENGTH_CODE_MAX_SHORT_LENGTH)
         {
-            xrc_allocation_metadata metadata;
-            metadata.length_code = length + XRC_LENGTH_CODE_DISPOSE;
-            metadata.flags       = flags;
-            metadata.offset      = 0;
-
             payload = xrc_do_alloc(
                 size,
                 alignment,
                 sizeof(xrc_dispose_header),
                 alignof(xrc_dispose_header),
-                metadata
+                length + XRC_LENGTH_CODE_DISPOSE,
+                flags
                 );
         }
         else
         {
-            xrc_allocation_metadata metadata;
-            metadata.length_code = XRC_LENGTH_CODE_DISPOSE_EXTENDED;
-            metadata.flags       = flags;
-            metadata.offset      = 0;
-
             payload = xrc_do_alloc(
                 size,
                 alignment,
                 sizeof(xrc_extended_header),
                 alignof(xrc_extended_header),
-                metadata
+                XRC_LENGTH_CODE_DISPOSE_EXTENDED,
+                flags
                 );
             xrc_allocation_get_extended_header(payload)->length = length;
         }
@@ -260,7 +246,7 @@ static void xrc_buffer_decrement(
         // non-recursive decrement: push onto decrement queue
         if (xrc_decrement_queue_push(
             &this_thread_data->decrement_queue,
-            0,
+            // 0,
             pointer
             ))
         {

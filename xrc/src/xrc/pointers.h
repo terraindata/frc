@@ -22,7 +22,7 @@ static void xrc_private_pointer_initialize(
     xrc_private_pointer* target
     )
 {
-    target->hazard  = xrc_pop_hazard();
+    target->hazard  = xrc_hazard_set_allocate_hazard();
     target->pointer = NULL;
 }
 
@@ -43,7 +43,7 @@ static void xrc_private_pointer_allocate(
         flags
         );
     xrc_private_pointer_initialize(target);
-    xrc_hazard_memory(target->hazard, memory);
+    xrc_hazard_publish(target->hazard, memory);
     xrc_buffer_decrement(memory);
 }
 
@@ -62,7 +62,7 @@ static void xrc_private_pointer_initialize_from_public_pointer(
     xrc_public_pointer*  source
     )
 {
-    target->pointer = xrc_get_and_hazard_memory(
+    target->pointer = xrc_hazard_publish_from(
         target->hazard,
         source,
         memory_order_acquire
@@ -73,7 +73,7 @@ static void xrc_private_pointer_dispose(
     xrc_private_pointer* target
     )
 {
-    xrc_release_hazard(target->hazard);
+    xrc_hazard_release(target->hazard);
 }
 
 static void xrc_private_pointer_preinit(
@@ -85,7 +85,7 @@ static void xrc_private_pointer_preinit(
         return;
 
     hazard->thread_local_reference_count--;
-    target->hazard = xrc_pop_hazard();
+    target->hazard = xrc_hazard_set_allocate_hazard();
 }
 
 static void xrc_private_pointer_clear(
@@ -148,7 +148,7 @@ static void xrc_public_pointer_copy(
     )
 {
     xrc_hazard* hazard      = *xrc_thread_local_hazard_set_head;
-    void*       acquisition = xrc_get_and_hazard_memory(
+    void*       acquisition = xrc_hazard_publish_from(
         hazard,
         source,
         memory_order_acquire

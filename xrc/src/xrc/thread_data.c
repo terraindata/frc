@@ -85,7 +85,7 @@ int xrc_attach_thread()
 void xrc_detach_thread()
 {
     xrc_thread_data* target = xrc_thread_local_thread_data;
-    xrc_clear_hazard_set(&target->hazard_set);
+    xrc_hazard_set_clear(&target->hazard_set);
     // atomic_store_explicit(&target->is_alive, 0, memory_order_release);
     xrc_reduce_tree_set_leaf_value(&xrc_control_data.completed_scan_time_tree, target->index, UINT64_MAX);
     xrc_reduce_tree_set_leaf_value(&xrc_control_data.scan_time_tree, target->index, UINT64_MAX);
@@ -229,9 +229,8 @@ static void xrc_help_scan(
             void* stolen_decrement;
             if (xrc_decrement_stack_steal(&target->decrement_stack, &stolen_decrement))
             {
-                xrc_decrement_queue_push(
-                    &xrc_thread_local_thread_data->decrement_queue,
-                    oldest_decrement_epoch,
+                xrc_decrement_stack_enqueue(
+                    &xrc_thread_local_thread_data->decrement_stack,
                     stolen_decrement
                     );
             }
@@ -306,7 +305,7 @@ void xrc_help_collect()
                     // try to scan a thread's hazard pointers
                     // possibly also steal a decrement from the scanned thread
                     xrc_help_scan(
-                        (int)this_threads_thread_data->index,
+                        this_threads_thread_data->index ^ oldest_decrement_epoch,
                         oldest_decrement_epoch
                         );
                 }
