@@ -1,68 +1,112 @@
-//
-// Created by ctripp on 3/13/25.
-//
-
-// void simple_test()
-// {
-//     xrc_decrement_stack queue;
-//     xrc_decrement_stack_initialize(&queue);
-//
-//     // The owner pushes 2 elements
-//     xrc_decrement_stack_push(&queue, (void*)0xAAA);
-//     xrc_decrement_stack_push(&queue, (void*)0xBBB);
-//
-//     // The owner pops 1
-//     void* popped;
-//     if (xrc_decrement_stack_pop(&queue, &popped))
-//     {
-//         printf("Owner pop => %p\n", popped);
-//     }
-//
-//     // Another thread tries to steal
-//     void* stolen;
-//     if (xrc_decrement_stack_steal(&queue, &stolen))
-//     {
-//         printf("Thief stolen => %p\n", stolen);
-//     }
-//     else
-//     {
-//         printf("Steal => fail\n");
-//     }
-//
-//     // The owner pops again
-//     if (xrc_decrement_stack_pop(&queue, &popped))
-//     {
-//         printf("Owner pop => %p\n", popped);
-//     }
-//     else
-//     {
-//         printf("No more items for the owner.\n");
-//     }
-// }
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
 #include <pthread.h>
-#include <stdint.h>
 #include <stdbool.h>
 #include <stdatomic.h>
+#include <stdint.h>
 #include "decrement_stack.h"
 
-// A quick test macro approach (not real CTest, but similar).
+// Minimal test macros
 #define TEST_ASSERT(expr, msg) \
-    do { if (!(expr)) { fprintf(stderr, "Test failure in %s (line %d): %s\n", __FILE__, __LINE__, msg); exit(1); } } while (0)
-
+    do { if (!(expr)) { fprintf(stderr, "Test failure in %s (line %d): %s\n", __FILE__, __LINE__, msg); exit(1);} } while(0)
 #define TEST_CASE(name) static void name()
 
+//-------------------------------------------------
+// A single function for "owner ops":
+// The owner can do push, pop, enqueue, or even steal from its own stack.
+// We keep a local 'count' that increments if push/enqueue done, decrements
+// if pop/steal done.
+//
+// Return the updated count after the operation.
+//
+// op codes: 0=push, 1=pop, 2=enqueue, 3=steal
+//-------------------------------------------------
+static size_t perform_owner_op(
+    xrc_decrement_stack* ds,
+    size_t               count,
+    int                  op,
+    bool                 verify_length
+    )
+{
+    switch (op)
+    {
+        case 0:
+            {
+                // push
+                if (!xrc_decrement_stack_is_full(ds))
+                {
+                    void* val = (void*)(uintptr_t)(rand() % 100000 + 0xA000);
+                    xrc_decrement_stack_push(ds, val);
+                    count++;
+                }
+                break;
+            }
+        case 1:
+            {
+                // pop
+                void* tmp;
+                bool  ok = xrc_decrement_stack_pop(ds, &tmp);
+                if (ok)
+                    count--;
+                break;
+            }
+        case 2:
+            {
+                // enqueue
+                if (!xrc_decrement_stack_is_full(ds))
+                {
+                    void* val = (void*)(uintptr_t)(rand() % 100000 + 0xB000);
+                    xrc_decrement_stack_enqueue(ds, val);
+                    count++;
+                }
+                break;
+            }
+        case 3:
+            {
+                // steal (owner stealing from own stack)
+                void* tmp;
+                bool  ok = xrc_decrement_stack_steal(ds, &tmp);
+                if (ok)
+                    count--;
+                break;
+            }
+    }
+
+    if (verify_length)
+    {
+        // check length
+        size_t len = xrc_decrement_stack_length(ds);
+        TEST_ASSERT(len == count, "Length mismatch in perform_owner_op");
+        bool empty = xrc_decrement_stack_is_empty(ds);
+        TEST_ASSERT(empty == (count == 0), "is_empty mismatch in perform_owner_op");
+    }
+    return count;
+}
+
+//-------------------------------------------------
+// Thief op: just tries a steal if not empty
+//-------------------------------------------------
+static void perform_thief_op(
+    xrc_decrement_stack* ds
+    )
+{
+    if (!xrc_decrement_stack_is_empty(ds))
+    {
+        void* tmp;
+        xrc_decrement_stack_steal(ds, &tmp);
+    }
+}
+
 //----------------------------------------------
-// Test 1: Single-thread push/pop only, verifying LIFO
+// Test 1: Single-thread push/pop => LIFO
+// No enqueue/steal, verifying correctness
 //----------------------------------------------
 TEST_CASE(test_single_thread_push_pop)
 {
     xrc_decrement_stack ds;
     xrc_decrement_stack_initialize(&ds);
 
-    // We'll keep a reference stack of size N, do random push/pop
     const int N = 10000;
     void*     ref_stack[N];
     int       ref_top = 0;
@@ -71,139 +115,81 @@ TEST_CASE(test_single_thread_push_pop)
 
     for (int i = 0; i < N * 2; i++)
     {
-        int do_push = rand() % 2;
+        bool do_push = (rand() % 2 == 0);
         if (do_push)
         {
-            // push
-            void* val = (void*)(uintptr_t)(rand() % 1000000 + 1);
-            xrc_decrement_stack_push(&ds, val);
-            ref_stack[ref_top++] = val;
+            // push if not full
+            if (!xrc_decrement_stack_is_full(&ds))
+            {
+                void* val = (void*)(uintptr_t)(rand() % 1000000 + 1);
+                xrc_decrement_stack_push(&ds, val);
+                ref_stack[ref_top++] = val;
+            }
         }
         else
         {
-            // pop
-            if (ref_top > 0)
+            // pop if not empty
+            if (ref_top > 0 && !xrc_decrement_stack_is_empty(&ds))
             {
                 void* expected = ref_stack[--ref_top];
                 void* got;
                 bool  ok = xrc_decrement_stack_pop(&ds, &got);
-                TEST_ASSERT(ok, "Pop failed when ref stack not empty");
-                TEST_ASSERT(got == expected, "Pop item mismatch in test 1");
+                TEST_ASSERT(ok, "pop fail in test1");
+                TEST_ASSERT(got == expected, "pop mismatch in test1");
             }
             else
             {
-                // ref stack empty => ds should be empty
                 void* dummy;
                 bool  ok = xrc_decrement_stack_pop(&ds, &dummy);
-                TEST_ASSERT(!ok, "Pop succeeded but ref stack empty in test 1");
+                TEST_ASSERT(!ok, "pop succeeded but ref empty in test1");
             }
         }
-        // check length
+        // length check
         size_t length = xrc_decrement_stack_length(&ds);
-        TEST_ASSERT(length == (size_t)ref_top, "Length mismatch in test 1");
+        TEST_ASSERT(length == (size_t)ref_top, "Length mismatch test1");
         bool empty = xrc_decrement_stack_is_empty(&ds);
-        TEST_ASSERT(empty == (ref_top == 0), "is_empty mismatch in test 1");
+        TEST_ASSERT(empty == (ref_top == 0), "is_empty mismatch test1");
     }
 
-    // drain final
+    // final drain
     while (ref_top > 0)
     {
         void* expected = ref_stack[--ref_top];
         void* got;
         bool  ok = xrc_decrement_stack_pop(&ds, &got);
-        TEST_ASSERT(ok, "Final pop fail test 1");
-        TEST_ASSERT(got == expected, "Final pop mismatch test 1");
+        TEST_ASSERT(ok, "final pop fail test1");
+        TEST_ASSERT(got == expected, "final pop mismatch test1");
     }
-    TEST_ASSERT(xrc_decrement_stack_is_empty(&ds), "Not empty end of test 1");
+    TEST_ASSERT(xrc_decrement_stack_is_empty(&ds), "not empty end test1");
     fprintf(stderr, "[test_single_thread_push_pop] PASS\n");
 }
 
 //----------------------------------------------
-// Test 2: Single-thread random ops: push, pop, enqueue, steal
-// We'll track a simple count that increments on successful push/enqueue
-// and decrements on successful pop/steal. We'll verify that
-// xrc_decrement_stack_length() matches that count, and is_empty is correct.
-//
-// We do NOT attempt to verify the order of items, because mixing
-// head-based push/pop with tail-based enqueue/steal in one ring
-// can produce a complex interleaving. The ring is valid, but the
-// test doesn't track a separate LIFO or FIFO reference for each item type.
+// Test 2: Single-thread random ops => push,pop,enqueue,steal
+// We store a `count` that we update in `perform_owner_op` (since the
+// single thread can also steal from its own queue).
 //----------------------------------------------
 TEST_CASE(test_single_thread_mixed_ops_single_thread)
 {
     xrc_decrement_stack ds;
     xrc_decrement_stack_initialize(&ds);
 
-    // We'll do many random operations, verifying that
-    // the length matches our "count" and is_empty matches (count == 0).
-    // We won't verify item order. We'll store a simple integer "count".
-    size_t count = 0;
-
-    const int OPS = 20000;
     srand((unsigned)time(NULL));
+    size_t    count = 0;
+    const int OPS   = 20000;
 
     for (int i = 0; i < OPS; i++)
     {
-        int op = rand() % 4; // 0=push,1=pop,2=enqueue,3=steal
-        switch (op)
-        {
-            case 0:
-                {
-                    // push
-                    void* val = (void*)(uintptr_t)(rand() % 1000000 + 0x1111);
-                    xrc_decrement_stack_push(&ds, val);
-                    count++;
-                    break;
-                }
-            case 1:
-                {
-                    // pop
-                    void* got;
-                    if (xrc_decrement_stack_pop(&ds, &got))
-                    {
-                        count--;
-                    }
-                    break;
-                }
-            case 2:
-                {
-                    // enqueue
-                    void* val = (void*)(uintptr_t)(rand() % 1000000 + 0x2222);
-                    xrc_decrement_stack_enqueue(&ds, val);
-                    count++;
-                    break;
-                }
-            case 3:
-                {
-                    // steal
-                    void* got;
-                    if (xrc_decrement_stack_steal(&ds, &got))
-                    {
-                        count--;
-                    }
-                    break;
-                }
-        }
-        size_t length = xrc_decrement_stack_length(&ds);
-        TEST_ASSERT(length == count, "Length mismatch in test 2");
-        bool empty = xrc_decrement_stack_is_empty(&ds);
-        TEST_ASSERT(empty == (count == 0), "is_empty mismatch in test 2");
+        int op = rand() % 4; // push/popl/enqueue/steal
+        count  = perform_owner_op(&ds, count, op, true);
     }
-
-    // Just ensure final length == count
-    size_t length = xrc_decrement_stack_length(&ds);
-    TEST_ASSERT(length == count, "Final length mismatch in test 2");
-    bool empty = xrc_decrement_stack_is_empty(&ds);
-    TEST_ASSERT(empty == (count == 0), "Final is_empty mismatch in test 2");
-
     fprintf(stderr, "[test_single_thread_mixed_ops_single_thread] PASS\n");
 }
 
 //----------------------------------------------
-// Test 3: Multithreaded
-// One owner thread does random push/pop/enqueue
-// Multiple thieves do random steals
-// We'll do a final single-thread pass (like test2) to confirm the queue is consistent
+// Test 3: Multi-thread. 1 owner calls `perform_owner_op`
+// multiple thieves call `perform_thief_op`
+// After join, single-thread random ops again
 //----------------------------------------------
 typedef struct
 {
@@ -221,35 +207,16 @@ static void* owner_thread_func(
     void* argp
     )
 {
-    owner_thread_arg*    arg = (owner_thread_arg*)argp;
-    xrc_decrement_stack* ds  = arg->ds;
-    int                  ops = arg->operations;
+    owner_thread_arg*    a  = (owner_thread_arg*)argp;
+    xrc_decrement_stack* ds = a->ds;
+    srand(12345);
 
-    srand(0x1234); // fixed seed for reproducibility
-
-    for (int i = 0; i < ops; i++)
+    size_t count = 0;
+    for (int i = 0; i < a->operations; i++)
     {
-        int op = rand() % 3; // 0=push,1=pop,2=enqueue
-        if (op == 0)
-        {
-            // push
-            void* val = (void*)(uintptr_t)(0xAAA000 + (rand() % 0x10000));
-            xrc_decrement_stack_push(ds, val);
-        }
-        else if (op == 1)
-        {
-            // pop
-            void* tmp;
-            xrc_decrement_stack_pop(ds, &tmp);
-        }
-        else
-        {
-            // enqueue
-            void* val = (void*)(uintptr_t)(0xBBB000 + (rand() % 0x10000));
-            xrc_decrement_stack_enqueue(ds, val);
-        }
+        int op = rand() % 4; // push, pop, enqueue, steal
+        count  = perform_owner_op(ds, count, op, false);
     }
-
     return NULL;
 }
 
@@ -257,15 +224,12 @@ static void* thief_thread_func(
     void* argp
     )
 {
-    thief_thread_arg*    arg = (thief_thread_arg*)argp;
-    xrc_decrement_stack* ds  = arg->ds;
-    srand((unsigned)(uintptr_t)pthread_self()); // distinct seed
+    thief_thread_arg* t = (thief_thread_arg*)argp;
+    srand((unsigned)pthread_self());
 
-    for (int i = 0; i < arg->steals; i++)
+    for (int i = 0; i < t->steals; i++)
     {
-        void* tmp;
-        xrc_decrement_stack_steal(ds, &tmp);
-        // we do not verify the item here
+        perform_thief_op(t->ds);
     }
     return NULL;
 }
@@ -275,7 +239,7 @@ TEST_CASE(test_multithreaded)
     xrc_decrement_stack ds;
     xrc_decrement_stack_initialize(&ds);
 
-    // Spawn 1 owner thread
+    // spawn 1 owner
     owner_thread_arg oarg;
     oarg.ds         = &ds;
     oarg.operations = 20000;
@@ -283,79 +247,38 @@ TEST_CASE(test_multithreaded)
     pthread_t owner;
     pthread_create(&owner, NULL, owner_thread_func, &oarg);
 
-    // spawn multiple thief threads
+    // spawn multiple thieves
     const int        THIEVES = 4;
     pthread_t        thieves[THIEVES];
     thief_thread_arg targs[THIEVES];
     for (int i = 0; i < THIEVES; i++)
     {
         targs[i].ds     = &ds;
-        targs[i].steals = 10000;
+        targs[i].steals = 15000;
         pthread_create(&thieves[i], NULL, thief_thread_func, &targs[i]);
     }
 
-    // join them
+    // join
     pthread_join(owner, NULL);
     for (int i = 0; i < THIEVES; i++)
     {
         pthread_join(thieves[i], NULL);
     }
 
-    // Now do a single-thread test (like test 2) to ensure queue is still consistent
+    // now do single-thread random ops again
     size_t count = xrc_decrement_stack_length(&ds);
     srand(0x9999);
-
     const int OPS = 5000;
     for (int i = 0; i < OPS; i++)
     {
-        int op = rand() % 4;
-        switch (op)
-        {
-            case 0:
-                {
-                    void* val = (void*)(uintptr_t)(rand() % 1000000 + 0x1111);
-                    xrc_decrement_stack_push(&ds, val);
-                    count++;
-                    break;
-                }
-            case 1:
-                {
-                    void* tmp;
-                    if (xrc_decrement_stack_pop(&ds, &tmp))
-                    {
-                        count--;
-                    }
-                    break;
-                }
-            case 2:
-                {
-                    void* val = (void*)(uintptr_t)(rand() % 1000000 + 0x2222);
-                    xrc_decrement_stack_enqueue(&ds, val);
-                    count++;
-                    break;
-                }
-            case 3:
-                {
-                    void* tmp;
-                    if (xrc_decrement_stack_steal(&ds, &tmp))
-                    {
-                        count--;
-                    }
-                    break;
-                }
-        }
-        size_t length = xrc_decrement_stack_length(&ds);
-        TEST_ASSERT(length == count, "Length mismatch in final test 3 single-thread check");
-        bool empty = xrc_decrement_stack_is_empty(&ds);
-        TEST_ASSERT(empty == (count == 0), "is_empty mismatch in final test 3 single-thread check");
+        int op = rand() % 4; // push,pop,enqueue,steal
+        count  = perform_owner_op(&ds, count, op, true);
     }
 
     fprintf(stderr, "[test_multithreaded] PASS\n");
 }
 
-//----------------------------------------------
-// main: run all tests
-//----------------------------------------------
+// main
 int main(
     void
     )

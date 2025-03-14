@@ -53,14 +53,14 @@ static void xrc_decrement_stack_push(
     )
 {
     // read head
-    size_t head = atomic_load_explicit(&target->head_index, memory_order_relaxed) + 1;
+    size_t head = atomic_load_explicit(&target->head_index, memory_order_relaxed);
 
     // store element in ring
     size_t pos          = head % XRC_PER_THREAD_DECREMENT_STACK_LENGTH;
     target->buffer[pos] = element;
 
     // update head
-    atomic_store_explicit(&target->head_index, head, memory_order_relaxed);
+    atomic_store_explicit(&target->head_index, head + 1, memory_order_relaxed);
 }
 
 /**
@@ -79,12 +79,14 @@ static bool xrc_decrement_stack_pop(
     if (head <= tail)
         return false; // failure: empty
 
+    head -= 1;
+
     // read element
     size_t pos = head % XRC_PER_THREAD_DECREMENT_STACK_LENGTH;
     *element   = target->buffer[pos];
 
     // update head
-    atomic_store_explicit(&target->head_index, head - 1, memory_order_release);
+    atomic_store_explicit(&target->head_index, head, memory_order_release);
     return true; // success
 }
 
@@ -102,6 +104,13 @@ static void xrc_decrement_stack_enqueue(
     for (;;)
     {
         size_t tail = atomic_load_explicit(&target->tail_index, memory_order_relaxed);
+        if (tail == 0)
+        {
+            // special case: tail is at zero, so push instead of underflowing tail
+            xrc_decrement_stack_push(target, element);
+            break;
+        }
+
         // We'll place the new item at new_tail
         // Because we want to expand from the tail side => old_tail - 1
         size_t new_tail = tail - 1;
@@ -146,16 +155,15 @@ static bool xrc_decrement_stack_steal(
     if (head <= tail)
         return false; // failure: empty
 
-    size_t new_tail = tail + 1;
-    size_t pos      = new_tail % XRC_PER_THREAD_DECREMENT_STACK_LENGTH;
 
-    *element = target->buffer[pos];
+    size_t pos = tail % XRC_PER_THREAD_DECREMENT_STACK_LENGTH;
+    *element   = target->buffer[pos];
 
     // Attempt CAS from old_tail => new_tail
     if (atomic_compare_exchange_weak_explicit(
         &target->tail_index,
         &tail,
-        new_tail,
+        tail + 1,
         memory_order_acq_rel,
         memory_order_acquire
         ))
@@ -176,8 +184,8 @@ static size_t xrc_decrement_stack_length(
     size_t head = atomic_load_explicit(&target->head_index, memory_order_acquire);
     size_t tail = atomic_load_explicit(&target->tail_index, memory_order_acquire);
 
-    if (head <= tail)
-        return 0;
+    if (head < tail)
+        return 0; // can happen due to read skew
     return head - tail;
 }
 
@@ -189,4 +197,11 @@ static bool xrc_decrement_stack_is_empty(
     size_t tail = atomic_load_explicit(&target->tail_index, memory_order_acquire);
 
     return head <= tail;
+}
+
+static bool xrc_decrement_stack_is_full(
+    xrc_decrement_stack* target
+    )
+{
+    return xrc_decrement_stack_length(target) >= (XRC_PER_THREAD_DECREMENT_STACK_LENGTH - 2);
 }
