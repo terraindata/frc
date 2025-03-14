@@ -49,7 +49,7 @@ static void xrc_impl_decrement_stack_initialize(
  */
 static void xrc_impl_decrement_stack_push(
     xrc_impl_decrement_stack* target,
-    void*                element
+    void*                     element
     )
 {
     // read head
@@ -70,7 +70,7 @@ static void xrc_impl_decrement_stack_push(
  */
 static bool xrc_impl_decrement_stack_pop(
     xrc_impl_decrement_stack* target,
-    void**               element
+    void**                    element
     )
 {
     size_t head = atomic_load_explicit(&target->head_index, memory_order_relaxed);
@@ -98,7 +98,7 @@ static bool xrc_impl_decrement_stack_pop(
  */
 static void xrc_impl_decrement_stack_enqueue(
     xrc_impl_decrement_stack* target,
-    void*                element
+    void*                     element
     )
 {
     for (;;)
@@ -146,7 +146,7 @@ static void xrc_impl_decrement_stack_enqueue(
  */
 static bool xrc_impl_decrement_stack_steal(
     xrc_impl_decrement_stack* target,
-    void**               element
+    void**                    element
     )
 {
     size_t head = atomic_load_explicit(&target->head_index, memory_order_relaxed);
@@ -176,7 +176,12 @@ static bool xrc_impl_decrement_stack_steal(
     return false;
 }
 
-
+/**
+ * Returns the number of elements in the stack, or a lower bound on
+ * the stack length under concurrent mutations.
+ * Can be called by any thread.
+ * Can be used to check if the stack is empty or full.
+ */
 static size_t xrc_impl_decrement_stack_length(
     xrc_impl_decrement_stack* target
     )
@@ -189,6 +194,10 @@ static size_t xrc_impl_decrement_stack_length(
     return head - tail;
 }
 
+/**
+ * Returns true if the stack is empty. May cause false positives under concurrent mutations.
+ * Can be called by any thread.
+ */
 static bool xrc_impl_decrement_stack_is_empty(
     xrc_impl_decrement_stack* target
     )
@@ -199,6 +208,9 @@ static bool xrc_impl_decrement_stack_is_empty(
     return head <= tail;
 }
 
+/**
+ * Returns true if the stack is full. May cause false positives under concurrent mutations.
+ */
 static bool xrc_impl_decrement_stack_is_full(
     xrc_impl_decrement_stack* target
     )

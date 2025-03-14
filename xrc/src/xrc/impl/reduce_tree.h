@@ -12,50 +12,35 @@
 #include <malloc.h>
 #include <xrc/settings.h>
 
+/**
+ * A node in a reduce tree.
+ */
 typedef struct xrc_impl_reduce_tree_node
 {
-    atomic_uint_fast64_t   value;
+    atomic_uint_fast64_t        value;
     xrc_impl_cache_line_padding padding;
 } xrc_impl_reduce_tree_node;
 
-
+/**
+ * A reduce tree.
+ */
 typedef struct xrc_impl_reduce_tree
 {
     size_t power;
     // size_t                num_internal_nodes;
-    size_t                num_leaves;
+    size_t                     num_leaves;
     xrc_impl_reduce_tree_node* nodes;
 } xrc_impl_reduce_tree;
 
 
 /**
- * rounds a number up to the nearest power of two
+ * Initializes a reduce tree.
+ * NB: Be sure to call xrc_impl_reduce_tree_destroy when the tree is no longer needed.
  */
-static size_t xrc_impl_reduce_tree_round_up_to_power_of_two(
-    size_t v
-    )
-{
-    if (v == 0)
-        return 1;
-
-    v--;
-
-    // Apply bit shifts dynamically based on the bit-width of `size_t`
-    for (size_t shift = 1; shift < sizeof(size_t) * CHAR_BIT; shift *= 2)
-    {
-        v |= v >> shift;
-    }
-
-    v++;
-
-    return v;
-}
-
-
 static void xrc_impl_reduce_tree_init(
     xrc_impl_reduce_tree* tree,
-    size_t           power,
-    uint_fast64_t    initial_value
+    size_t                power,
+    uint_fast64_t         initial_value
     )
 {
     tree->power      = power;
@@ -73,6 +58,9 @@ static void xrc_impl_reduce_tree_init(
     }
 }
 
+/**
+ * Destroys a reduce tree.
+ */
 static void xrc_impl_reduce_tree_destroy(
     xrc_impl_reduce_tree* tree
     )
@@ -82,6 +70,9 @@ static void xrc_impl_reduce_tree_destroy(
     tree->nodes = NULL;
 }
 
+/**
+ * Gets the minimum value in the tree.
+ */
 static uint_fast64_t xrc_impl_reduce_tree_get_min(
     xrc_impl_reduce_tree* tree
     )
@@ -89,11 +80,13 @@ static uint_fast64_t xrc_impl_reduce_tree_get_min(
     return atomic_load_explicit(&tree->nodes[1].value, memory_order_acquire);
 }
 
-
+/**
+ * Gets the value of a leaf node.
+ */
 static uint_fast64_t xrc_impl_reduce_tree_get_leaf_value(
     xrc_impl_reduce_tree* target,
-    size_t           leaf_index,
-    memory_order     order
+    size_t                leaf_index,
+    memory_order          order
     )
 {
     return atomic_load_explicit(
@@ -102,10 +95,15 @@ static uint_fast64_t xrc_impl_reduce_tree_get_leaf_value(
         );
 }
 
+/**
+ * Helper function updates internal nodes of the tree to reflect a change in a leaf node.
+ *
+ * Returns 0 if the root (min) value is unchanged, 1 if it is updated.
+ */
 static int xrc_impl_reduce_tree_update_min_from_leaf(
     xrc_impl_reduce_tree* target,
-    size_t           leaf_index,
-    uint_fast64_t    value
+    size_t                leaf_index,
+    uint_fast64_t         value
     )
 {
     size_t index = leaf_index + target->num_leaves;
@@ -145,10 +143,14 @@ static int xrc_impl_reduce_tree_update_min_from_leaf(
     return 1; // success, min updated
 }
 
+/**
+ * Updates the tree by setting the value of a leaf node to a given value.
+ * Returns 0 if the root (min) value is unchanged, 1 if it is updated.
+ */
 static int xrc_impl_reduce_tree_set_leaf_value(
     xrc_impl_reduce_tree* target,
-    size_t           leaf_index,
-    uint_fast64_t    value
+    size_t                leaf_index,
+    uint_fast64_t         value
     )
 {
     atomic_store_explicit(
@@ -164,10 +166,15 @@ static int xrc_impl_reduce_tree_set_leaf_value(
         );
 }
 
+/**
+ * Updates the tree by setting the value of a leaf node to a given value.
+ * Returns -1 if the leaf value is already greater than or equal to the new value.
+ * Returns 0 if the root (min) value is unchanged, 1 if it is updated.
+ */
 static int xrc_impl_reduce_tree_update_min(
     xrc_impl_reduce_tree* target,
-    size_t           leaf_index,
-    uint_fast64_t    value
+    size_t                leaf_index,
+    uint_fast64_t         value
     )
 {
     size_t index                          = leaf_index + target->num_leaves;
@@ -195,9 +202,14 @@ static int xrc_impl_reduce_tree_update_min(
         );
 }
 
+/**
+ * Gets the index of the maximum value in the tree.
+ * If there are multiple nodes with the maximum value, the tiebreaker is used to select one.
+ * Concurrent updates can cause incorrect results, but a valid index is always returned.
+ */
 static size_t xrc_impl_reduce_tree_get_max_index(
     xrc_impl_reduce_tree* target,
-    size_t           tiebreaker
+    size_t                tiebreaker
     )
 {
     size_t index = 1;
@@ -222,10 +234,14 @@ static size_t xrc_impl_reduce_tree_get_max_index(
     return index - target->num_leaves;
 }
 
+/**
+ * Gets the index of any leaf in the tree with a value less than or equal to the target value.
+ * Returns -1 on failure. Failures can be spurious due to concurrent updates.
+ */
 static int xrc_impl_reduce_tree_get_index_less_than_or_equal_to_value(
     xrc_impl_reduce_tree* target,
-    int              tiebreaker,
-    uint_fast64_t    value
+    int                   tiebreaker,
+    uint_fast64_t         value
     )
 {
     int index = 1;

@@ -32,31 +32,52 @@
 #define XRC_OFFSET_CODE_MAX_VALUE             (1 << (CHAR_BIT * sizeof(xrc_impl_allocation_offset)) - 1)
 
 
+/**
+ * Holds thread-specific data for maintaining:
+ *  + hazard pointers
+ *  + deferred decrements
+ *  + thread-specific control data
+ */
 typedef struct xrc_impl_thread_data
 {
-    xrc_impl_stack_node stack_node;
-    size_t              index;
-    xrc_impl_hazard_set hazard_set;
+    xrc_impl_stack_node stack_node; // intrusive atomic stack node used for free list
+    size_t              index; // thread index in thread_data_array
+    xrc_impl_hazard_set hazard_set; // thread-local hazard pointer set
 
-    xrc_impl_cache_line_padding pad_0;
+    xrc_impl_cache_line_padding pad_0; // padding to avoid false sharing
 
-    int                         is_collecting;
-    xrc_impl_decrement_queue    decrement_queue;
-    xrc_impl_cache_line_padding pad_1;
-    xrc_impl_decrement_stack    decrement_stack;
+    bool                        is_collecting; // true if this thread is currently collecting
+    xrc_impl_decrement_queue    decrement_queue; // work queue of recursively generated decrements
+    xrc_impl_cache_line_padding pad_1; // padding to avoid false sharing
+    xrc_impl_decrement_stack    decrement_stack; // stack of non-recursive decrements
 } xrc_impl_thread_data;
 
+/**
+ * Holds control data for the entire xrc system.
+ */
 typedef struct xrc_impl_control_data_s
 {
-    atomic_uint_fast64_t        epoch;
-    xrc_impl_cache_line_padding pad_0;
-    xrc_impl_reduce_tree        scan_time_tree;
-    xrc_impl_reduce_tree        completed_scan_time_tree;
+    // global collection epoch "time"
+    atomic_uint_fast64_t epoch;
 
-    xrc_impl_thread_data  thread_data_array[XRC_MAX_THREADS];
+    xrc_impl_cache_line_padding pad_0; // padding to avoid false sharing
+
+    // tree of scan start epochs for each thread data
+    xrc_impl_reduce_tree scan_time_tree;
+
+    // tree of scan start epochs of the most recently completed scan of each thread data
+    xrc_impl_reduce_tree completed_scan_time_tree;
+
+    // fixed-size pool of thread data structures
+    xrc_impl_thread_data thread_data_array[XRC_MAX_THREADS];
+
+    // free list of thread data structures
     xrc_impl_atomic_stack free_thread_data;
 } xrc_impl_control_data_s;
 
+/**
+ * Global control data for the xrc system.
+ */
 extern xrc_impl_control_data_s xrc_impl_control_data;
 
 /**
@@ -69,11 +90,20 @@ extern xrc_impl_control_data_s xrc_impl_control_data;
  * [payload] - variable size
  */
 
+/**
+ * A dispose function that can be supplied when allocating managed memory.
+ * If supplied, the dispose function will be called before the memory is freed.
+ * This can be used to release resources associated with the memory, such
+ * as releasing additional pointers, calling a C++ destructor or releasing a file handle.
+ */
 typedef void (*xrc_dispose_function)(
     void*,
     size_t
     );
 
+/**
+ * Metadata for an allocation.
+ */
 typedef struct xrc_impl_allocation_metadata
 {
     xrc_impl_length_code       length_code;
@@ -81,19 +111,27 @@ typedef struct xrc_impl_allocation_metadata
     xrc_impl_allocation_offset offset;
 } xrc_impl_allocation_metadata;
 
-
+/**
+ * Standard allocation header.
+ */
 typedef struct xrc_impl_allocation_header
 {
     xrc_impl_reference_count     count;
     xrc_impl_allocation_metadata metadata;
 } xrc_impl_allocation_header;
 
+/**
+ * Allocation header with dispose function.
+ */
 typedef struct xrc_impl_dispose_header
 {
     xrc_dispose_function       dispose;
     xrc_impl_allocation_header header;
 } xrc_impl_dispose_header;
 
+/**
+ * Allocation header with dispose function and extended length.
+ */
 typedef struct xrc_impl_extended_header
 {
     size_t                  length;
@@ -101,18 +139,69 @@ typedef struct xrc_impl_extended_header
 } xrc_impl_extended_header;
 
 
-extern thread_local xrc_impl_hazard**     xrc_impl_thread_local_hazard_set_head;
+/**
+ * Thread-local hazard set freelist head.
+ * Used to allocate and deallocate hazard pointers.
+ */
+extern thread_local xrc_impl_hazard** xrc_impl_thread_local_hazard_set_head;
+
+/**
+ * Thread-local pointer to this thread's thread data.
+ */
 extern thread_local xrc_impl_thread_data* xrc_impl_thread_local_thread_data;
 
-extern void          xrc_initialize();
-extern void          xrc_terminate();
-extern int           xrc_attach_thread();
-extern void          xrc_detach_thread();
-extern void          xrc_help_collect();
+/**
+ * Initializes the xrc system.
+ * NB: This must be called before any other xrc functions.
+ * PS: Be sure to call xrc_terminate when the xrc system is no longer needed or memory leaks can occur.
+ */
+extern void xrc_initialize();
+
+/**
+ * Shuts down the xrc system.
+ * NB: This must be called when the xrc system is no longer needed or memory leaks can occur.
+ * WARNING: Do not call this function until all threads have detached from the xrc system.
+ */
+extern void xrc_terminate();
+
+/**
+ * Attaches the calling thread to the xrc system.
+ * NB: This must be called before any xrc functions aside from
+ *  xrc_initialize and xrc_terminate are called by this thread.
+ * PS: Be sure to call xrc_detach_thread when the thread is no longer using the xrc system or memory leaks can occur.
+ */
+extern int xrc_attach_thread();
+
+/**
+ * Detaches this thread from the xrc system.
+ * NB: This must be called when the thread is no longer using the xrc system or memory leaks can occur.
+ */
+extern void xrc_detach_thread();
+
+/**
+ * Causes the calling thread to help with garbage collection.
+ */
+extern void xrc_help_collect();
+
+/**
+ * Internal function. Gets the current epoch.
+ */
 extern uint_fast64_t xrc_impl_get_epoch();
+
+/**
+ * Internal function. Advances the epoch.
+ */
 extern uint_fast64_t xrc_impl_advance_epoch();
+
+/**
+ * Gets the last complete scan epoch.
+ * Decrements issued before this epoch are eligible for execution.
+ */
 extern uint_fast64_t xrc_impl_get_last_complete_scan_epoch();
 
+/**
+ * Internal function. Helps allocate managed memory.
+ */
 static void* xrc_impl_do_alloc(
     size_t                    size,
     size_t                    alignment,
@@ -122,14 +211,23 @@ static void* xrc_impl_do_alloc(
     xrc_impl_allocation_flags flags
     );
 
+/**
+ * Internal function. Retrieves the allocation header from a payload pointer.
+ */
 static xrc_impl_dispose_header* xrc_impl_allocation_get_dispose_header(
     void* payload
     );
 
+/**
+ * Internal function. Retrieves the xrc_impl_extended_header from a payload pointer.
+ */
 static xrc_impl_extended_header* xrc_impl_allocation_get_extended_header(
     void* payload
     );
 
+/**
+ * Allocated managed memory. Generally, this will be used to initialize or assign a xrc pointer.
+ */
 static void* xrc_alloc(
     size_t                    size,
     size_t                    alignment,
@@ -182,7 +280,9 @@ static void* xrc_alloc(
     return payload;
 }
 
-
+/**
+ * Internal function. Gets the allocation header from a payload pointer.
+ */
 static xrc_impl_allocation_header* xrc_impl_allocation_get_header(
     void* payload
     )
@@ -190,6 +290,9 @@ static xrc_impl_allocation_header* xrc_impl_allocation_get_header(
     return (xrc_impl_allocation_header*)((char*)payload - sizeof(xrc_impl_allocation_header));
 }
 
+/**
+ * Internal function. Gets the xrc_impl_dispose_header from a payload pointer.
+ */
 static xrc_impl_dispose_header* xrc_impl_allocation_get_dispose_header(
     void* payload
     )
@@ -197,6 +300,9 @@ static xrc_impl_dispose_header* xrc_impl_allocation_get_dispose_header(
     return (xrc_impl_dispose_header*)((char*)payload - sizeof(xrc_impl_dispose_header));
 }
 
+/**
+ * Internal function. Gets the xrc_impl_extended_header from a payload pointer.
+ */
 static xrc_impl_extended_header* xrc_impl_allocation_get_extended_header(
     void* payload
     )
@@ -204,6 +310,9 @@ static xrc_impl_extended_header* xrc_impl_allocation_get_extended_header(
     return (xrc_impl_extended_header*)((char*)payload - sizeof(xrc_impl_extended_header));
 }
 
+/**
+ * Internal function. Helps allocate managed memory.
+ */
 static void* xrc_impl_do_alloc(
     size_t                    size,
     size_t                    alignment,
@@ -242,7 +351,9 @@ static void* xrc_impl_do_alloc(
     return payload;
 }
 
-
+/**
+ * Internal function. Buffers a decrement to the referenced managed memory.
+ */
 static void xrc_impl_buffer_decrement(
     void* pointer
     )
@@ -271,13 +382,19 @@ static void xrc_impl_buffer_decrement(
     }
 }
 
+/**
+ * Internal function. Gets the allocation header from a managed memory payload pointer.
+ */
 static xrc_impl_allocation_header* xrc_impl_get_allocation_header(
-    void* pointer
+    void* payload
     )
 {
-    return (xrc_impl_allocation_header*)((char*)pointer - sizeof(xrc_impl_allocation_header));
+    return (xrc_impl_allocation_header*)((char*)payload - sizeof(xrc_impl_allocation_header));
 }
 
+/**
+ * Internal function. Gets the xrc_impl_allocation_header from a managed memory payload pointer.
+ */
 static void* xrc_impl_get_allocation_payload(
     xrc_impl_allocation_header* header
     )
@@ -285,7 +402,9 @@ static void* xrc_impl_get_allocation_payload(
     return (void*)((char*)header + sizeof(xrc_impl_allocation_header));
 }
 
-
+/**
+ * Internal function. Increments the reference count of a managed memory allocation.
+ */
 static void xrc_impl_increment_reference_count(
     void* pointer
     )
