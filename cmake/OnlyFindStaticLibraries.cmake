@@ -1,5 +1,0 @@
-if (WIN32 OR MSVC)
-        set(CMAKE_FIND_LIBRARY_SUFFIXES ".lib")
-elseif (UNIX)
-        set(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
-endif()

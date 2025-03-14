@@ -1,5 +1,6 @@
 #
 # (C) 2017 Terrain Data, Inc.
+# (C) 2025 Charles Edison Tripp, PhD (alterations after 2017)
 #
 
 # Google Test
