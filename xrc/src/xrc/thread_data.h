@@ -226,13 +226,23 @@ static xrc_impl_extended_header* xrc_impl_allocation_get_extended_header(
     );
 
 /**
- * Allocated managed memory. Generally, this will be used to initialize or assign a xrc pointer.
+ * Allocated managed memory. Typically the result will be used to initialize or assign a xrc pointer.
+ * Returns a pointer to the requested memory, or NULL if the allocation failed.
+ * XRC metadata is stored before the returned pointer.
  */
 static void* xrc_alloc(
-    size_t                    size,
-    size_t                    alignment,
-    size_t                    length,
-    xrc_dispose_function      dispose,
+    // the size of the allocated memory
+    size_t size,
+    // the alignment requirement of the allocated memory
+    size_t alignment,
+    // if a dispose function is supplied, length will be passed to it when it is called
+    size_t length,
+    // an optional function (like a destructor) that will be called before freeing the memory to release any
+    // associated resources like other xrc_sptr objects, file handles, secondary allocations, etc.
+    // any thread attached to xrc may call the function, but it will be called only once and only after
+    // it is unreachable (via xrc managed pointers).
+    xrc_dispose_function dispose,
+    // currently unused, but could be used to track specific allocations or allocation classes. 0 is the default.
     xrc_impl_allocation_flags flags
     )
 {

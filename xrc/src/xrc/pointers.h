@@ -8,28 +8,28 @@
 #include "settings.h"
 #include <xrc/thread_data.h>
 
-typedef atomic_intptr_t xrc_public_pointer;
+typedef atomic_intptr_t xrc_sptr;
 
 /**
  * A pointer that is thread-local and can be used to allocate memory.
- * Private pointers are protected from collection using thread-local hazard pointers.
- * Using private pointers to read a data structure is wait-free and has very low synchronization overhead.
+ * local pointers are protected from collection using thread-local hazard pointers.
+ * Using local pointers to read a data structure is wait-free and has very low synchronization overhead.
  * Compared to a bare pointer, only a few memory release ordered stores are used to publish the hazard pointer.
  */
-typedef struct xrc_private_pointer
+typedef struct xrc_lptr
 {
     void*            pointer; // the memory being pointed to
     xrc_impl_hazard* hazard; // the hazard pointer protecting the memory
-} xrc_private_pointer;
+} xrc_lptr;
 
 
 /**
- * Initializes a public pointer to NULL.
- * Be sure to call xrc_private_pointer_dispose when the private pointer is no longer needed
+ * Initializes a shared pointer to NULL.
+ * Be sure to call xrc_lptr_dispose when the local pointer is no longer needed
  * or a leak can occur.
  */
-static void xrc_private_pointer_initialize(
-    xrc_private_pointer* target
+static void xrc_lptr_initialize(
+    xrc_lptr* target
     )
 {
     target->hazard  = xrc_impl_hazard_set_allocate_hazard();
@@ -37,20 +37,29 @@ static void xrc_private_pointer_initialize(
 }
 
 /**
- * Allocates memory and initializes a private pointer to point to it.
- * Be sure to call xrc_private_pointer_dispose when the private pointer is no longer needed
+ * Allocates memory and initializes a local pointer to point to it.
+ * Be sure to call xrc_lptr_dispose when the local pointer is no longer needed
  * or a leak can occur.
  *
  * If you are allocating memory for thread-local use, this carries more overhead
  * than simply using a bare pointer. If you are allocating memory for shared use,
- * it may be more efficient to use a public pointer directly.
+ * it may be more efficient to use a shared pointer directly.
  */
-static void xrc_private_pointer_allocate(
-    xrc_private_pointer*      target,
-    size_t                    size,
-    size_t                    alignment,
-    size_t                    length,
-    xrc_dispose_function      dispose,
+static void xrc_lptr_initialize_with_allocation(
+    // pointer to initialize to point to the allocated memory
+    xrc_lptr* target,
+    // the size of the allocated memory
+    size_t size,
+    // the alignment requirement of the allocated memory
+    size_t alignment,
+    // if a dispose function is supplied, length will be passed to it when it is called
+    size_t length,
+    // an optional function (like a destructor) that will be called before freeing the memory to release any
+    // associated resources like other xrc_sptr objects, file handles, secondary allocations, etc.
+    // any thread attached to xrc may call the function, but it will be called only once and only after
+    // it is unreachable (via xrc managed pointers).
+    xrc_dispose_function dispose,
+    // currently unused, but could be used to track specific allocations or allocation classes. 0 is the default.
     xrc_impl_allocation_flags flags
     )
 {
@@ -61,19 +70,19 @@ static void xrc_private_pointer_allocate(
         dispose,
         flags
         );
-    xrc_private_pointer_initialize(target);
+    xrc_lptr_initialize(target);
     xrc_impl_hazard_publish(target->hazard, memory);
     xrc_impl_buffer_decrement(memory);
 }
 
 /**
- * Initializes this private pointer as a copy of another.
- * Be sure to call xrc_private_pointer_dispose when the private pointer is no longer needed
+ * Initializes this local pointer as a copy of another.
+ * Be sure to call xrc_lptr_dispose when the local pointer is no longer needed
  * or a leak can occur.
  */
-static void xrc_private_pointer_copy(
-    xrc_private_pointer* target,
-    xrc_private_pointer* source
+static void xrc_lptr_initialize_as_copy_of(
+    xrc_lptr* target,
+    xrc_lptr* source
     )
 {
     target->pointer = source->pointer;
@@ -82,13 +91,13 @@ static void xrc_private_pointer_copy(
 }
 
 /**
- * Initializes a private pointer to point to the memory protected by a public pointer.
- * Be sure to call xrc_private_pointer_dispose when the private pointer is no longer needed
+ * Initializes a local pointer to point to the memory protected by a shared pointer.
+ * Be sure to call xrc_lptr_dispose when the local pointer is no longer needed
  * or a leak can occur.
  */
-static void xrc_private_pointer_initialize_from_public_pointer(
-    xrc_private_pointer* target,
-    xrc_public_pointer*  source
+static void xrc_lptr_initialize_from_sptr(
+    xrc_lptr* target,
+    xrc_sptr* source
     )
 {
     target->hazard  = xrc_impl_hazard_set_allocate_hazard();
@@ -100,12 +109,12 @@ static void xrc_private_pointer_initialize_from_public_pointer(
 }
 
 /**
- * Disposes a private pointer.
- * Call this when a private pointer is no longer needed.
+ * Disposes a local pointer.
+ * Call this when a local pointer is no longer needed.
  * If it is not called, any protected memory will continue to be pinned indefinitely.
  */
-static void xrc_private_pointer_dispose(
-    xrc_private_pointer* target
+static void xrc_lptr_dispose(
+    xrc_lptr* target
     )
 {
     xrc_impl_hazard_release(target->hazard);
@@ -113,11 +122,11 @@ static void xrc_private_pointer_dispose(
 
 
 /**
- * Internal function to prepare a private pointer to be set to a new value.
+ * Internal function to prepare a local pointer to be set to a new value.
  * Reuses the hazard if it is not shared, otherwise allocates a new hazard.
  */
-static void xrc_impl_private_pointer_preinit(
-    xrc_private_pointer* target
+static void xrc_impl_lptr_preinit(
+    xrc_lptr* target
     )
 {
     xrc_impl_hazard* hazard = target->hazard;
@@ -129,39 +138,39 @@ static void xrc_impl_private_pointer_preinit(
 }
 
 /**
- * Clears a private pointer, releasing it's previous pin and
+ * Clears a local pointer, releasing it's previous pin and
  * setting it to NULL.
  */
-static void xrc_private_pointer_clear(
-    xrc_private_pointer* target
+static void xrc_lptr_clear(
+    xrc_lptr* target
     )
 {
-    xrc_impl_private_pointer_preinit(target);
+    xrc_impl_lptr_preinit(target);
     target->pointer = NULL;
 }
 
 /**
- * Assigns a private pointer to point to the same memory as another.
- * The two private pointers share the same hazard pointer.
+ * Assigns a local pointer to point to the same memory as another.
+ * The two local pointers share the same hazard pointer.
  */
-static void xrc_private_pointer_assign(
-    xrc_private_pointer* target,
-    xrc_private_pointer* source
+static void xrc_lptr_assign(
+    xrc_lptr* target,
+    xrc_lptr* source
     )
 {
-    xrc_impl_private_pointer_preinit(target);
-    xrc_private_pointer_copy(target, source);
+    xrc_impl_lptr_preinit(target);
+    xrc_lptr_initialize_as_copy_of(target, source);
 }
 
 /**
- * Assigns a private pointer to point to the memory protected by a public pointer.
+ * Assigns a local pointer to point to the memory protected by a shared pointer.
  */
-static void xrc_private_pointer_assign_from_public_pointer(
-    xrc_private_pointer* target,
-    xrc_public_pointer*  source
+static void xrc_lptr_assign_from_sptr(
+    xrc_lptr* target,
+    xrc_sptr* source
     )
 {
-    xrc_impl_private_pointer_preinit(target);
+    xrc_impl_lptr_preinit(target);
     target->pointer = xrc_impl_hazard_publish_from(
         target->hazard,
         source,
@@ -170,12 +179,12 @@ static void xrc_private_pointer_assign_from_public_pointer(
 }
 
 /**
- * Assigns a private pointer to point to a new memory allocation.
+ * Assigns a local pointer to point to a new memory allocation.
  *
  * Caller must have exclusive access to the pointer.
  */
-static void xrc_public_pointer_initialize(
-    xrc_public_pointer* target
+static void xrc_sptr_initialize(
+    xrc_sptr* target
     )
 {
     atomic_store_explicit(target, (intptr_t)NULL, memory_order_release);
@@ -183,18 +192,27 @@ static void xrc_public_pointer_initialize(
 
 
 /**
- * Allocates memory and initializes a public pointer to point to it.
+ * Allocates memory and initializes a shared pointer to point to it.
  *
  * Caller must have exclusive access to the pointer.
  *
- * Be sure to call xrc_public_pointer_dispose when the public pointer is no longer needed, or a memory leak can occur.
+ * Be sure to call xrc_sptr_dispose when the shared pointer is no longer needed, or a memory leak can occur.
  */
-static void xrc_public_pointer_allocate(
-    xrc_public_pointer*       target,
-    size_t                    size,
-    size_t                    alignment,
-    size_t                    length,
-    xrc_dispose_function      dispose,
+static void xrc_sptr_initialize_with_allocation(
+    // pointer to initialize to point to the allocated memory
+    xrc_sptr* target,
+    // the size of the allocated memory
+    size_t size,
+    // the alignment requirement of the allocated memory
+    size_t alignment,
+    // if a dispose function is supplied, length will be passed to it when it is called
+    size_t length,
+    // an optional function (like a destructor) that will be called before freeing the memory to release any
+    // associated resources like other xrc_sptr objects, file handles, secondary allocations, etc.
+    // any thread attached to xrc may call the function, but it will be called only once and only after
+    // it is unreachable (via xrc managed pointers).
+    xrc_dispose_function dispose,
+    // currently unused, but could be used to track specific allocations or allocation classes. 0 is the default.
     xrc_impl_allocation_flags flags
     )
 {
@@ -209,15 +227,15 @@ static void xrc_public_pointer_allocate(
 }
 
 /**
- * Initializes this public pointer with the value of another.
+ * Initializes this shared pointer with the value of another.
  *
  * Caller must have exclusive access to the pointer.
  *
- * Be sure to call xrc_public_pointer_dispose when the public pointer is no longer needed, or a memory leak can occur.
+ * Be sure to call xrc_sptr_dispose when the shared pointer is no longer needed, or a memory leak can occur.
  */
-static void xrc_public_pointer_copy(
-    xrc_public_pointer* target,
-    xrc_public_pointer* source
+static void xrc_sptr_initialize_with_copy_of(
+    xrc_sptr* target,
+    xrc_sptr* source
     )
 {
     xrc_impl_hazard* hazard      = *xrc_impl_thread_local_hazard_set_head;
@@ -230,15 +248,15 @@ static void xrc_public_pointer_copy(
 }
 
 /**
- * Initializes this public pointer with the value of a private pointer.
+ * Initializes this shared pointer with the value of a local pointer.
  *
  * Caller must have exclusive access to the pointer.
  *
- * Be sure to call xrc_public_pointer_dispose when the public pointer is no longer needed, or a memory leak can occur.
+ * Be sure to call xrc_sptr_dispose when the shared pointer is no longer needed, or a memory leak can occur.
  */
-static void xrc_public_pointer_initialize_from_private_pointer(
-    xrc_public_pointer*  target,
-    xrc_private_pointer* source
+static void xrc_sptr_initialize_from_lptr(
+    xrc_sptr* target,
+    xrc_lptr* source
     )
 {
     xrc_impl_increment_reference_count(source);
@@ -246,15 +264,15 @@ static void xrc_public_pointer_initialize_from_private_pointer(
 }
 
 /**
- * Disposes of this public pointer.
+ * Disposes of this shared pointer.
  * Releases the reference.
  *
  * Caller must have exclusive access to the pointer.
  *
- * Be sure to call this when a public pointer is no longer needed, or a memory leak can occur.
+ * Be sure to call this when a shared pointer is no longer needed, or a memory leak can occur.
  */
-static void xrc_public_pointer_dispose(
-    xrc_public_pointer* target
+static void xrc_sptr_dispose(
+    xrc_sptr* target
     )
 {
     intptr_t previous_value = atomic_load_explicit(target, memory_order_acquire);
@@ -263,24 +281,56 @@ static void xrc_public_pointer_dispose(
 }
 
 /**
- * Assigns a public pointer to point to the same memory as another.
+ * Assigns a shared pointer to point to the same memory as another.
  *
  * Caller must be the only mutator. Concurrent reads are permitted.
  *
  * Releases the previous reference and acquires the new one.
  */
-static void xrc_public_pointer_assign(
-    xrc_public_pointer* target,
-    void*               source
+static void xrc_sptr_assign(
+    xrc_sptr* target,
+    void*     source
     )
 {
     xrc_impl_increment_reference_count(source);
     intptr_t previous_value = atomic_load_explicit(target, memory_order_acquire);
     atomic_store_explicit(target, (intptr_t)source, memory_order_release);
+    xrc_impl_buffer_decrement((void*)previous_value);
 }
 
 /**
- * Atomically assigns a public pointer to point to the same memory as another without incrementing the reference count.
+ * Initializes a shared pointer with the value of another.
+ * Leaves the source shared pointer as NULL.
+ *
+ * Caller must be the only mutator for both pointers.
+ */
+static void xrc_sptr_initalize_move(
+    xrc_sptr* target,
+    xrc_sptr* source
+    )
+{
+    atomic_store_explicit(target, (intptr_t)source, memory_order_release);
+    atomic_store_explicit(source, (intptr_t)NULL, memory_order_relaxed);
+}
+
+/**
+ * Moves ownership of a reference from one shared pointer to another.
+ * Leaves the source shared pointer as NULL.
+ *
+ * Caller must be the only mutator for both pointers.
+ */
+static void xrc_sptr_assign_move(
+    xrc_sptr* target,
+    xrc_sptr* source
+    )
+{
+    intptr_t previous_value = atomic_load_explicit(target, memory_order_acquire);
+    xrc_sptr_initalize_move(target, source);
+    xrc_impl_buffer_decrement((void*)previous_value);
+}
+
+/**
+ * Atomically assigns a shared pointer to point to the same memory as another without incrementing the reference count.
  * Use cases are very specific.
  * WARNING: If you don't know what this does, don't call it.
  *  You are likely to have a memory leak or a use after free bug if not called under the correct circumstances.
@@ -289,9 +339,9 @@ static void xrc_public_pointer_assign(
  *
  * Releases the previous reference but does not acquire the new one.
  */
-static void xrc_public_pointer_assign_atomic_without_increment(
-    xrc_public_pointer* target,
-    void*               source
+static void xrc_sptr_assign_atomic_without_increment(
+    xrc_sptr* target,
+    void*     source
     )
 {
     intptr_t previous_value = atomic_exchange_explicit(target, (intptr_t)source, memory_order_acq_rel);
@@ -299,55 +349,73 @@ static void xrc_public_pointer_assign_atomic_without_increment(
 }
 
 /**
- * Atomically assigns a public pointer to point to the same memory as another.
+ * Atomically assigns a shared pointer to point to the same memory as another.
  *
  * Concurrent readers and mutators are permitted.
  *
  * Releases the previous reference and acquires the new one.
  */
-static void xrc_public_pointer_assign_atomic(
-    xrc_public_pointer* target,
-    void*               source
+static void xrc_sptr_assign_atomic(
+    xrc_sptr* target,
+    void*     source
     )
 {
     xrc_impl_increment_reference_count(source);
-    xrc_public_pointer_assign_atomic_without_increment(target, source);
+    xrc_sptr_assign_atomic_without_increment(target, source);
 }
 
 
 /**
- * Assigns a public pointer to point to a new memory allocation.
+ * Assigns a shared pointer to point to a new memory allocation.
  *
  * Caller must be the only mutating thread. Concurrent readers are permitted.
  *
  * Releases the previous reference and acquires the new one.
  */
-static void xrc_public_pointer_assign_allocate(
-    xrc_public_pointer*       target,
-    size_t                    size,
-    size_t                    alignment,
-    size_t                    length,
-    xrc_dispose_function      dispose,
+static void xrc_sptr_assign_allocate(
+    // the pointer to assign to the address of the allocated memory
+    xrc_sptr* target,
+    // the size of the allocated memory
+    size_t size,
+    // the alignment requirement of the allocated memory
+    size_t alignment,
+    // if a dispose function is supplied, length will be passed to it when it is called
+    size_t length,
+    // an optional function (like a destructor) that will be called before freeing the memory to release any
+    // associated resources like other xrc_sptr objects, file handles, secondary allocations, etc.
+    // any thread attached to xrc may call the function, but it will be called only once and only after
+    // it is unreachable (via xrc managed pointers).
+    xrc_dispose_function dispose,
+    // currently unused, but could be used to track specific allocations or allocation classes. 0 is the default.
     xrc_impl_allocation_flags flags
     )
 {
-    xrc_public_pointer_dispose(target);
-    xrc_public_pointer_allocate(target, size, alignment, length, dispose, flags);
+    xrc_sptr_dispose(target);
+    xrc_sptr_initialize_with_allocation(target, size, alignment, length, dispose, flags);
 }
 
 /**
- * Atomically assigns a public pointer to point to a new memory allocation.
+ * Atomically assigns a shared pointer to point to a new memory allocation.
  *
  * Concurrent readers and mutators are permitted.
  *
  * Releases the previous reference and acquires the new one.
  */
-static void xrc_public_pointer_assign_allocate_atomic(
-    xrc_public_pointer*       target,
-    size_t                    size,
-    size_t                    alignment,
-    size_t                    length,
-    xrc_dispose_function      dispose,
+static void xrc_sptr_assign_allocate_atomic(
+    // the pointer to assign to the address of the allocated memory
+    xrc_sptr* target,
+    // the size of the allocated memory
+    size_t size,
+    // the alignment requirement of the allocated memory
+    size_t alignment,
+    // if a dispose function is supplied, length will be passed to it when it is called
+    size_t length,
+    // an optional function (like a destructor) that will be called before freeing the memory to release any
+    // associated resources like other xrc_sptr objects, file handles, secondary allocations, etc.
+    // any thread attached to xrc may call the function, but it will be called only once and only after
+    // it is unreachable (via xrc managed pointers).
+    xrc_dispose_function dispose,
+    // currently unused, but could be used to track specific allocations or allocation classes. 0 is the default.
     xrc_impl_allocation_flags flags
     )
 {
@@ -358,5 +426,5 @@ static void xrc_public_pointer_assign_allocate_atomic(
         dispose,
         flags
         );
-    xrc_public_pointer_assign_atomic_without_increment(target, memory);
+    xrc_sptr_assign_atomic_without_increment(target, memory);
 }

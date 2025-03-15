@@ -32,15 +32,15 @@ static void simple_single_threaded_test()
     xrc_attach_thread();
 
 
-    xrc_public_pointer a;
-    xrc_public_pointer_initialize(&a);
+    xrc_sptr a;
+    xrc_sptr_initialize(&a);
 
     for (size_t i = 0; i < num_test_allocations;)
     {
         int roll = rand() % 10;
         if (roll <= 4)
         {
-            xrc_public_pointer_assign_allocate(
+            xrc_sptr_assign_allocate(
                 &a,
                 sizeof(int*),
                 alignof(int*),
@@ -55,7 +55,7 @@ static void simple_single_threaded_test()
         }
         else if (roll <= 6)
         {
-            xrc_public_pointer_assign_allocate_atomic(
+            xrc_sptr_assign_allocate_atomic(
                 &a,
                 sizeof(int*),
                 alignof(int*),
@@ -70,15 +70,15 @@ static void simple_single_threaded_test()
         }
         else if (roll <= 8)
         {
-            xrc_public_pointer_dispose(&a);
+            xrc_sptr_dispose(&a);
         }
         else
         {
-            xrc_public_pointer_assign_atomic(&a, NULL);
+            xrc_sptr_assign_atomic(&a, NULL);
         }
     }
 
-    xrc_public_pointer_dispose(&a);
+    xrc_sptr_dispose(&a);
 
     xrc_detach_thread();
 
@@ -92,7 +92,7 @@ static void simple_single_threaded_test()
 
 typedef struct worker_data
 {
-    xrc_public_pointer* shared_pointer;
+    xrc_sptr* shared_pointer;
     int*                test_allocation_status;
     size_t              num_allocations;
 } worker_data;
@@ -102,7 +102,7 @@ static void* worker_thread(
     )
 {
     worker_data*        data                   = (worker_data*)arg;
-    xrc_public_pointer* shared_pointer         = data->shared_pointer;
+    xrc_sptr* shared_pointer         = data->shared_pointer;
     int*                test_allocation_status = data->test_allocation_status;
     size_t              num_allocations        = data->num_allocations;
 
@@ -117,12 +117,12 @@ static void* worker_thread(
             int** allocation = xrc_alloc(sizeof(int*), alignof(int*), 0, dispose_test_int, 0);
             *allocation      = &test_allocation_status[i];
 
-            xrc_public_pointer_assign_atomic_without_increment(shared_pointer, allocation);
+            xrc_sptr_assign_atomic_without_increment(shared_pointer, allocation);
             i++;
         }
         else
         {
-            xrc_public_pointer_assign_atomic(shared_pointer, NULL);
+            xrc_sptr_assign_atomic(shared_pointer, NULL);
         }
     }
 
@@ -145,8 +145,8 @@ static void multithreaded_test()
     xrc_initialize();
     xrc_attach_thread();
 
-    xrc_public_pointer shared_pointer;
-    xrc_public_pointer_initialize(&shared_pointer);
+    xrc_sptr shared_pointer;
+    xrc_sptr_initialize(&shared_pointer);
 
     pthread_t threads[num_threads];
     for (int i = 0; i < num_threads; i++)
@@ -164,7 +164,7 @@ static void multithreaded_test()
     }
 
 
-    xrc_public_pointer_dispose(&shared_pointer);
+    xrc_sptr_dispose(&shared_pointer);
 
     xrc_detach_thread();
     xrc_terminate();
