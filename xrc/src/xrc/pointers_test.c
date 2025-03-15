@@ -49,7 +49,7 @@ static void simple_single_threaded_test()
                 0
                 );
 
-            int** allocation = (int**)atomic_load_explicit(&a, memory_order_relaxed);
+            int** allocation = (int**)xrc_sptr_get(&a);
             *allocation      = &test_allocation_status[i];
             i++;
         }
@@ -64,7 +64,7 @@ static void simple_single_threaded_test()
                 0
                 );
 
-            int** allocation = (int**)atomic_load_explicit(&a, memory_order_relaxed);
+            int** allocation = (int**)xrc_sptr_get(&a);
             *allocation      = &test_allocation_status[i];
             i++;
         }
@@ -74,7 +74,7 @@ static void simple_single_threaded_test()
         }
         else
         {
-            xrc_sptr_assign_atomic(&a, NULL);
+            xrc_sptr_clear_atomic(&a);
         }
     }
 
@@ -93,18 +93,18 @@ static void simple_single_threaded_test()
 typedef struct worker_data
 {
     xrc_sptr* shared_pointer;
-    int*                test_allocation_status;
-    size_t              num_allocations;
+    int*      test_allocation_status;
+    size_t    num_allocations;
 } worker_data;
 
 static void* worker_thread(
     void* arg
     )
 {
-    worker_data*        data                   = (worker_data*)arg;
-    xrc_sptr* shared_pointer         = data->shared_pointer;
-    int*                test_allocation_status = data->test_allocation_status;
-    size_t              num_allocations        = data->num_allocations;
+    worker_data* data                   = (worker_data*)arg;
+    xrc_sptr*    shared_pointer         = data->shared_pointer;
+    int*         test_allocation_status = data->test_allocation_status;
+    size_t       num_allocations        = data->num_allocations;
 
     xrc_attach_thread();
 
@@ -117,12 +117,12 @@ static void* worker_thread(
             int** allocation = xrc_alloc(sizeof(int*), alignof(int*), 0, dispose_test_int, 0);
             *allocation      = &test_allocation_status[i];
 
-            xrc_sptr_assign_atomic_without_increment(shared_pointer, allocation);
+            xrc_sptr_assign_vptr_atomic_without_increment(shared_pointer, allocation);
             i++;
         }
         else
         {
-            xrc_sptr_assign_atomic(shared_pointer, NULL);
+            xrc_sptr_clear_atomic(shared_pointer);
         }
     }
 
