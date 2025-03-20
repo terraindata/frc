@@ -654,14 +654,14 @@ int main(
     void
     )
 {
-    int traversals   = 10;
-    int thread_count = 60;
+    int traversals   = 1;
+    int thread_count = 16;
     // if (argc >= 2)
     //     traversals = atoi(argv[1]);
     // if (argc >= 3)
     //     thread_count = atoi(argv[2]);
 
-    size_t sizes[] = {8 * 1024, 256 * 1024, 4 * 1024 * 1024, 64 * 1024 * 1024}; //, 512 * 1024 * 1024};
+    size_t sizes[] = {8 * 1024, 256 * 1024, 4 * 1024 * 1024}; //, 64 * 1024 * 1024}; //, 512 * 1024 * 1024};
     int    n_sizes = sizeof(sizes) / sizeof(sizes[0]);
 
     struct

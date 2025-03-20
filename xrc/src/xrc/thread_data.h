@@ -14,6 +14,7 @@
 #include <xrc/impl/reduce_tree.h>
 #include <xrc/impl/hazard_set.h>
 
+#include <xrc/impl/slim_mutex.h>
 
 #define XRC_ALLOCATION_HEADER_ALIGNMENT (alignof(xrc_impl_allocation_header) > alignof(size_t) ? alignof(xrc_impl_allocation_header) : alignof(size_t))
 #define XRC_EXTENDED_SIZE_HEADER_SIZE ((sizeof(size_t) + sizeof(xrc_impl_allocation_header) + (XRC_ALLOCATION_HEADER_ALIGNMENT - 1)) & ~(XRC_ALLOCATION_HEADER_ALIGNMENT - 1))
@@ -42,14 +43,15 @@ typedef struct xrc_impl_thread_data
 {
     xrc_impl_stack_node stack_node; // intrusive atomic stack node used for free list
     size_t              index; // thread index in thread_data_array
-    xrc_impl_hazard_set hazard_set; // thread-local hazard pointer set
+
+    bool                     is_collecting; // true if this thread is currently collecting
+    xrc_impl_decrement_queue decrement_queue; // work queue of recursively generated decrements
+
+    xrc_impl_hazard_set      hazard_set; // thread-local hazard pointer set
+    xrc_impl_slim_mutex      scan_mutex; // held when scanning the thread data
+    xrc_impl_decrement_stack decrement_stack; // stack of non-recursive decrements
 
     xrc_impl_cache_line_padding pad_0; // padding to avoid false sharing
-
-    bool                        is_collecting; // true if this thread is currently collecting
-    xrc_impl_decrement_queue    decrement_queue; // work queue of recursively generated decrements
-    xrc_impl_cache_line_padding pad_1; // padding to avoid false sharing
-    xrc_impl_decrement_stack    decrement_stack; // stack of non-recursive decrements
 } xrc_impl_thread_data;
 
 /**
@@ -202,7 +204,7 @@ extern uint_fast64_t xrc_impl_get_last_complete_scan_epoch();
 /**
  * Internal function. Helps allocate managed memory.
  */
-static void* xrc_impl_do_alloc(
+static inline void* xrc_impl_do_alloc(
     size_t                    size,
     size_t                    alignment,
     size_t                    header_size,
@@ -214,14 +216,14 @@ static void* xrc_impl_do_alloc(
 /**
  * Internal function. Retrieves the allocation header from a payload pointer.
  */
-static xrc_impl_dispose_header* xrc_impl_allocation_get_dispose_header(
+static inline xrc_impl_dispose_header* xrc_impl_allocation_get_dispose_header(
     void* payload
     );
 
 /**
  * Internal function. Retrieves the xrc_impl_extended_header from a payload pointer.
  */
-static xrc_impl_extended_header* xrc_impl_allocation_get_extended_header(
+static inline xrc_impl_extended_header* xrc_impl_allocation_get_extended_header(
     void* payload
     );
 
@@ -230,7 +232,7 @@ static xrc_impl_extended_header* xrc_impl_allocation_get_extended_header(
  * Returns a pointer to the requested memory, or NULL if the allocation failed.
  * XRC metadata is stored before the returned pointer.
  */
-static void* xrc_alloc(
+static inline void* xrc_alloc(
     // the size of the allocated memory
     size_t size,
     // the alignment requirement of the allocated memory
@@ -293,7 +295,7 @@ static void* xrc_alloc(
 /**
  * Internal function. Gets the allocation header from a payload pointer.
  */
-static xrc_impl_allocation_header* xrc_impl_allocation_get_header(
+static inline xrc_impl_allocation_header* xrc_impl_allocation_get_header(
     void* payload
     )
 {
@@ -303,7 +305,7 @@ static xrc_impl_allocation_header* xrc_impl_allocation_get_header(
 /**
  * Internal function. Gets the xrc_impl_dispose_header from a payload pointer.
  */
-static xrc_impl_dispose_header* xrc_impl_allocation_get_dispose_header(
+static inline xrc_impl_dispose_header* xrc_impl_allocation_get_dispose_header(
     void* payload
     )
 {
@@ -313,7 +315,7 @@ static xrc_impl_dispose_header* xrc_impl_allocation_get_dispose_header(
 /**
  * Internal function. Gets the xrc_impl_extended_header from a payload pointer.
  */
-static xrc_impl_extended_header* xrc_impl_allocation_get_extended_header(
+static inline xrc_impl_extended_header* xrc_impl_allocation_get_extended_header(
     void* payload
     )
 {
@@ -323,7 +325,7 @@ static xrc_impl_extended_header* xrc_impl_allocation_get_extended_header(
 /**
  * Internal function. Helps allocate managed memory.
  */
-static void* xrc_impl_do_alloc(
+static inline void* xrc_impl_do_alloc(
     size_t                    size,
     size_t                    alignment,
     size_t                    header_size,
@@ -364,11 +366,11 @@ static void* xrc_impl_do_alloc(
 /**
  * Internal function. Buffers a decrement to the referenced managed memory.
  */
-static void xrc_impl_buffer_decrement(
+static inline void xrc_impl_buffer_decrement(
     void* pointer
     )
 {
-    if (pointer == NULL)
+    if (pointer != NULL)
         return;
 
     xrc_impl_thread_data* this_thread_data = xrc_impl_thread_local_thread_data;
@@ -395,7 +397,7 @@ static void xrc_impl_buffer_decrement(
 /**
  * Internal function. Gets the allocation header from a managed memory payload pointer.
  */
-static xrc_impl_allocation_header* xrc_impl_get_allocation_header(
+static inline xrc_impl_allocation_header* xrc_impl_get_allocation_header(
     void* payload
     )
 {
@@ -405,7 +407,7 @@ static xrc_impl_allocation_header* xrc_impl_get_allocation_header(
 /**
  * Internal function. Gets the xrc_impl_allocation_header from a managed memory payload pointer.
  */
-static void* xrc_impl_get_allocation_payload(
+static inline void* xrc_impl_get_allocation_payload(
     xrc_impl_allocation_header* header
     )
 {
@@ -415,7 +417,7 @@ static void* xrc_impl_get_allocation_payload(
 /**
  * Internal function. Increments the reference count of a managed memory allocation.
  */
-static void xrc_impl_increment_reference_count(
+static inline void xrc_impl_increment_reference_count(
     void* pointer
     )
 {

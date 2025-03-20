@@ -33,7 +33,7 @@ typedef struct xrc_lptr
  * Be sure to call xrc_lptr_dispose when the local pointer is no longer needed
  * or a leak can occur.
  */
-static void xrc_lptr_initialize(
+static inline void xrc_lptr_initialize(
     xrc_lptr* target
     )
 {
@@ -44,7 +44,7 @@ static void xrc_lptr_initialize(
 /**
  * Returns the value of a local pointer.
  */
-static void* xrc_lptr_get(
+static inline void* xrc_lptr_get(
     xrc_lptr* target
     )
 {
@@ -60,7 +60,7 @@ static void* xrc_lptr_get(
  * than simply using a bare pointer. If you are allocating memory for shared use,
  * it may be more efficient to use a shared pointer directly.
  */
-static void xrc_lptr_initialize_with_allocation(
+static inline void xrc_lptr_initialize_with_allocation(
     // pointer to initialize to point to the allocated memory
     xrc_lptr* target,
     // the size of the allocated memory
@@ -95,7 +95,7 @@ static void xrc_lptr_initialize_with_allocation(
  * Be sure to call xrc_lptr_dispose when the local pointer is no longer needed
  * or a leak can occur.
  */
-static void xrc_lptr_initialize_as_copy_of(
+static inline void xrc_lptr_initialize_as_copy_of(
     xrc_lptr* target,
     xrc_lptr* source
     )
@@ -110,7 +110,7 @@ static void xrc_lptr_initialize_as_copy_of(
  * Be sure to call xrc_lptr_dispose when the local pointer is no longer needed
  * or a leak can occur.
  */
-static void xrc_lptr_initialize_from_sptr(
+static inline void xrc_lptr_initialize_from_sptr(
     xrc_lptr* target,
     xrc_sptr* source
     )
@@ -118,8 +118,7 @@ static void xrc_lptr_initialize_from_sptr(
     target->hazard  = xrc_impl_hazard_set_allocate_hazard();
     target->pointer = xrc_impl_hazard_publish_from(
         target->hazard,
-        &source->pointer,
-        memory_order_acquire
+        &source->pointer
         );
 }
 
@@ -128,7 +127,7 @@ static void xrc_lptr_initialize_from_sptr(
  * Call this when a local pointer is no longer needed.
  * If it is not called, any protected memory will continue to be pinned indefinitely.
  */
-static void xrc_lptr_dispose(
+static inline void xrc_lptr_dispose(
     xrc_lptr* target
     )
 {
@@ -140,7 +139,7 @@ static void xrc_lptr_dispose(
  * Internal function to prepare a local pointer to be set to a new value.
  * Reuses the hazard if it is not shared, otherwise allocates a new hazard.
  */
-static void xrc_impl_lptr_preinit(
+static inline void xrc_impl_lptr_preinit(
     xrc_lptr* target
     )
 {
@@ -156,7 +155,7 @@ static void xrc_impl_lptr_preinit(
  * Clears a local pointer, releasing it's previous pin and
  * setting it to NULL.
  */
-static void xrc_lptr_clear(
+static inline void xrc_lptr_clear(
     xrc_lptr* target
     )
 {
@@ -168,7 +167,7 @@ static void xrc_lptr_clear(
  * Assigns a local pointer to point to the same memory as another.
  * The two local pointers share the same hazard pointer.
  */
-static void xrc_lptr_assign(
+static inline void xrc_lptr_assign(
     xrc_lptr* target,
     xrc_lptr* source
     )
@@ -180,7 +179,7 @@ static void xrc_lptr_assign(
 /**
  * Assigns a local pointer to point to the memory protected by a shared pointer.
  */
-static void xrc_lptr_assign_from_sptr(
+static inline void xrc_lptr_assign_from_sptr(
     xrc_lptr* target,
     xrc_sptr* source
     )
@@ -188,15 +187,14 @@ static void xrc_lptr_assign_from_sptr(
     xrc_impl_lptr_preinit(target);
     target->pointer = xrc_impl_hazard_publish_from(
         target->hazard,
-        &source->pointer,
-        memory_order_acquire
+        &source->pointer
         );
 }
 
 /**
  * Returns the value of a shared pointer using a relaxed memory order.
  */
-static void* xrc_sptr_get(
+static inline void* xrc_sptr_get(
     xrc_sptr* target
     )
 {
@@ -206,7 +204,7 @@ static void* xrc_sptr_get(
 /**
  * Returns the value of a shared pointer using an acquire memory order.
  */
-static void* xrc_sptr_acquire(
+static inline void* xrc_sptr_acquire(
     xrc_sptr* target
     )
 {
@@ -219,7 +217,7 @@ static void* xrc_sptr_acquire(
  *
  * Caller must have exclusive access to the pointer.
  */
-static void xrc_sptr_initialize(
+static inline void xrc_sptr_initialize(
     xrc_sptr* target
     )
 {
@@ -234,7 +232,7 @@ static void xrc_sptr_initialize(
  *
  * Be sure to call xrc_sptr_dispose when the shared pointer is no longer needed, or a memory leak can occur.
  */
-static void xrc_sptr_initialize_with_allocation(
+static inline void xrc_sptr_initialize_with_allocation(
     // pointer to initialize to point to the allocated memory
     xrc_sptr* target,
     // the size of the allocated memory
@@ -269,7 +267,7 @@ static void xrc_sptr_initialize_with_allocation(
  *
  * Be sure to call xrc_sptr_dispose when the shared pointer is no longer needed, or a memory leak can occur.
  */
-static void xrc_sptr_initialize_with_copy_of(
+static inline void xrc_sptr_initialize_with_copy_of(
     xrc_sptr* target,
     xrc_sptr* source
     )
@@ -277,8 +275,7 @@ static void xrc_sptr_initialize_with_copy_of(
     xrc_impl_hazard* hazard      = *xrc_impl_thread_local_hazard_set_head;
     void*            acquisition = xrc_impl_hazard_publish_from(
         hazard,
-        &source->pointer,
-        memory_order_acquire
+        &source->pointer
         );
     atomic_store_explicit(&target->pointer, (intptr_t)acquisition, memory_order_release);
 }
@@ -290,7 +287,7 @@ static void xrc_sptr_initialize_with_copy_of(
  *
  * Be sure to call xrc_sptr_dispose when the shared pointer is no longer needed, or a memory leak can occur.
  */
-static void xrc_sptr_initialize_from_lptr(
+static inline void xrc_sptr_initialize_from_lptr(
     xrc_sptr* target,
     xrc_lptr* source
     )
@@ -302,7 +299,7 @@ static void xrc_sptr_initialize_from_lptr(
 /**
  * Assigns a shared pointer to a void* without incrementing the reference count.
  */
-static void xrc_sptr_assign_vptr_without_increment(
+static inline void xrc_sptr_assign_vptr_without_increment(
     xrc_sptr* target,
     void*     source
     )
@@ -320,7 +317,7 @@ static void xrc_sptr_assign_vptr_without_increment(
  *
  * Be sure to call this when a shared pointer is no longer needed, or a memory leak can occur.
  */
-static void xrc_sptr_dispose(
+static inline void xrc_sptr_dispose(
     xrc_sptr* target
     )
 {
@@ -334,7 +331,7 @@ static void xrc_sptr_dispose(
  *
  * Caller must be the only mutator. Concurrent reads are permitted.
  */
-static void xrc_sptr_assign_vptr(
+static inline void xrc_sptr_assign_vptr(
     xrc_sptr* target,
     void*     source
     )
@@ -348,7 +345,7 @@ static void xrc_sptr_assign_vptr(
  *
  * Caller must be the only mutator. Concurrent reads are permitted.
  */
-static void xrc_sptr_clear(
+static inline void xrc_sptr_clear(
     xrc_sptr* target
     )
 {
@@ -362,7 +359,7 @@ static void xrc_sptr_clear(
  *
  * Releases the previous reference and acquires the new one.
  */
-static void xrc_sptr_assign(
+static inline void xrc_sptr_assign(
     xrc_sptr* target,
     xrc_sptr* source
     )
@@ -373,7 +370,7 @@ static void xrc_sptr_assign(
 /**
  * Assigns a shared pointer to point to the memory referenced by a local pointer.
  */
-static void xrc_sptr_assign_lptr(
+static inline void xrc_sptr_assign_lptr(
     xrc_sptr* target,
     xrc_lptr* source
     )
@@ -387,7 +384,7 @@ static void xrc_sptr_assign_lptr(
  *
  * Caller must be the only mutator for both pointers.
  */
-static void xrc_sptr_initalize_move(
+static inline void xrc_sptr_initalize_move(
     xrc_sptr* target,
     xrc_sptr* source
     )
@@ -403,7 +400,7 @@ static void xrc_sptr_initalize_move(
  *
  * Caller must be the only mutator for both pointers.
  */
-static void xrc_sptr_assign_move(
+static inline void xrc_sptr_assign_move(
     xrc_sptr* target,
     xrc_sptr* source
     )
@@ -422,7 +419,7 @@ static void xrc_sptr_assign_move(
  *
  * Releases the previous reference but does not acquire the new one.
  */
-static void xrc_sptr_assign_vptr_atomic_without_increment(
+static inline void xrc_sptr_assign_vptr_atomic_without_increment(
     xrc_sptr* target,
     void*     source
     )
@@ -441,7 +438,7 @@ static void xrc_sptr_assign_vptr_atomic_without_increment(
  *
  * Releases the previous reference but does not acquire the new one.
  */
-static void xrc_sptr_assign_atomic_without_increment(
+static inline void xrc_sptr_assign_atomic_without_increment(
     xrc_sptr* target,
     xrc_sptr* source
     )
@@ -462,7 +459,7 @@ static void xrc_sptr_assign_atomic_without_increment(
  *
  * Releases the previous reference but does not acquire the new one.
  */
-static void xrc_sptr_assign_lptr_atomic_without_increment(
+static inline void xrc_sptr_assign_lptr_atomic_without_increment(
     xrc_sptr* target,
     xrc_lptr* source
     )
@@ -477,7 +474,7 @@ static void xrc_sptr_assign_lptr_atomic_without_increment(
  *
  * Releases the previous reference and acquires the new one.
  */
-static void xrc_sptr_assign_vptr_atomic(
+static inline void xrc_sptr_assign_vptr_atomic(
     xrc_sptr* target,
     void*     source
     )
@@ -490,7 +487,7 @@ static void xrc_sptr_assign_vptr_atomic(
  * Atomically assigns a shared pointer to NULL.
  * Concurrent readers and mutators are permitted.
  */
-static void xrc_sptr_clear_atomic(
+static inline void xrc_sptr_clear_atomic(
     xrc_sptr* target
     )
 {
@@ -505,7 +502,7 @@ static void xrc_sptr_clear_atomic(
  *
  * Releases the previous reference and acquires the new one.
  */
-static void xrc_sptr_assign_allocate(
+static inline void xrc_sptr_assign_allocate(
     // the pointer to assign to the address of the allocated memory
     xrc_sptr* target,
     // the size of the allocated memory
@@ -534,7 +531,7 @@ static void xrc_sptr_assign_allocate(
  *
  * Releases the previous reference and acquires the new one.
  */
-static void xrc_sptr_assign_allocate_atomic(
+static inline void xrc_sptr_assign_allocate_atomic(
     // the pointer to assign to the address of the allocated memory
     xrc_sptr* target,
     // the size of the allocated memory

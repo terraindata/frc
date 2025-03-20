@@ -14,13 +14,7 @@
  */
 typedef struct xrc_impl_slim_mutex
 {
-    atomic_uint_fast32_t state; /* 0=unlocked, 1=locked(no waiters), 2=locked(waiters) */
-
-#if defined(__APPLE__)
-    pthread_mutex_t internal_mutex;
-    pthread_cond_t  internal_cond;
-#endif
-    /* No extra fields needed for other platforms in this design. */
+    atomic_uint_fast64_t state; /* 0=unlocked, 1=locked(no waiters), 2=locked(waiters) */
 } xrc_impl_slim_mutex;
 
 

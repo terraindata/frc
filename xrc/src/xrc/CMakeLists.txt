@@ -18,7 +18,7 @@ endif ()
 
 # Set compiler optimization flags
 if (CMAKE_BUILD_TYPE STREQUAL "Release")
-    string(APPEND CMAKE_C_FLAGS " -Ofast -march=native -mtune=native -ftree-vectorize -ffast-math")
+    string(APPEND CMAKE_C_FLAGS " -Ofast -march=native -mtune=native -ftree-vectorize")
 elseif (CMAKE_BUILD_TYPE STREQUAL "Debug")
     string(APPEND CMAKE_C_FLAGS " -O0 -g")
 endif ()

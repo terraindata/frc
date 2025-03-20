@@ -101,9 +101,9 @@ static int _mutex_wake(
  */
 #if defined(__linux__)
 
-static int futex_wait_impl(
+static long int futex_wait_impl(
     uint32_t* uaddr,
-    int       expected
+    uint32_t  expected
     )
 {
     int ret;
@@ -130,9 +130,9 @@ static int futex_wait_impl(
     return 0;
 }
 
-static int futex_wake_impl(
+static long int futex_wake_impl(
     uint32_t* uaddr,
-    int       count
+    uint32_t  count
     )
 {
     int ret;
@@ -159,7 +159,7 @@ static int _mutex_wait(
     )
 {
     /* Since futex operates on 32-bit ints, we use the lower 32 bits of expected. */
-    int exp32 = (int)(expected & 0xFFFFFFFFULL);
+    uint32_t exp32 = (uint32_t)(expected);
     while (atomic_load_explicit(&m->lockword, memory_order_relaxed) == expected)
     {
         int err = futex_wait_impl((uint32_t*)&m->lockword, exp32);
@@ -185,7 +185,7 @@ static int _mutex_wake(
     int             num_wake
     )
 {
-    return futex_wake_impl((uint32_t*)&m->lockword, num_wake);
+    return futex_wake_impl((uint32_t*)&m->lockword, (uint32_t)num_wake);
 }
 
 

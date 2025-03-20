@@ -34,12 +34,12 @@ typedef struct xrc_impl_decrement_stack
 } xrc_impl_decrement_stack;
 
 
-static void xrc_impl_decrement_stack_initialize(
+static inline void xrc_impl_decrement_stack_initialize(
     xrc_impl_decrement_stack* target
     )
 {
-    atomic_store_explicit(&target->head_index, 0, memory_order_relaxed);
-    atomic_store_explicit(&target->tail_index, 0, memory_order_release);
+    atomic_store_explicit(&target->head_index, ((uint_fast64_t)1) << 48, memory_order_release);
+    atomic_store_explicit(&target->tail_index, ((uint_fast64_t)1) << 48, memory_order_release);
 }
 
 /**
@@ -47,7 +47,7 @@ static void xrc_impl_decrement_stack_initialize(
  * Wait-free.
  * Only called by the owner of the stack.
  */
-static void xrc_impl_decrement_stack_push(
+static inline void xrc_impl_decrement_stack_push(
     xrc_impl_decrement_stack* target,
     void*                     element
     )
@@ -68,7 +68,7 @@ static void xrc_impl_decrement_stack_push(
  * Wait-free.
  * Only called by the owner of the stack.
  */
-static bool xrc_impl_decrement_stack_pop(
+static inline bool xrc_impl_decrement_stack_pop(
     xrc_impl_decrement_stack* target,
     void**                    element
     )
@@ -96,7 +96,7 @@ static bool xrc_impl_decrement_stack_pop(
  * Should only be called by the owner of the stack.
  * Lock-free, but can spin on contention for the tail.
  */
-static void xrc_impl_decrement_stack_enqueue(
+static inline void xrc_impl_decrement_stack_enqueue(
     xrc_impl_decrement_stack* target,
     void*                     element
     )
@@ -144,7 +144,7 @@ static void xrc_impl_decrement_stack_enqueue(
  * Wait-free but will fail under contention on the tail.
  * Can also fail spuriously.
  */
-static bool xrc_impl_decrement_stack_steal(
+static inline bool xrc_impl_decrement_stack_steal(
     xrc_impl_decrement_stack* target,
     void**                    element
     )
@@ -182,7 +182,7 @@ static bool xrc_impl_decrement_stack_steal(
  * Can be called by any thread.
  * Can be used to check if the stack is empty or full.
  */
-static size_t xrc_impl_decrement_stack_length(
+static inline size_t xrc_impl_decrement_stack_length(
     xrc_impl_decrement_stack* target
     )
 {
@@ -198,7 +198,7 @@ static size_t xrc_impl_decrement_stack_length(
  * Returns true if the stack is empty. May cause false positives under concurrent mutations.
  * Can be called by any thread.
  */
-static bool xrc_impl_decrement_stack_is_empty(
+static inline bool xrc_impl_decrement_stack_is_empty(
     xrc_impl_decrement_stack* target
     )
 {
@@ -211,7 +211,7 @@ static bool xrc_impl_decrement_stack_is_empty(
 /**
  * Returns true if the stack is full. May cause false positives under concurrent mutations.
  */
-static bool xrc_impl_decrement_stack_is_full(
+static inline bool xrc_impl_decrement_stack_is_full(
     xrc_impl_decrement_stack* target
     )
 {

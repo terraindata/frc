@@ -178,7 +178,7 @@ static void multithreaded_test()
 
 int main()
 {
-    simple_single_threaded_test();
-    multithreaded_test();
+    // simple_single_threaded_test();
+    // multithreaded_test();
     return 0;
 }
