@@ -396,11 +396,11 @@ static int _mutex_wake(xrc_impl_slim_mutex *m, int num_wake)
  */
 
 /*
- * simple_mutex_init:
+ * xrc_impl_slim_mutex_init:
  *   - Initialize the state to 0 (unlocked).
  *   - Initialize any OS-specific resources (macOS's pthread objects).
  */
-int simple_mutex_init(
+int xrc_impl_slim_mutex_init(
     xrc_impl_slim_mutex* mutex
     )
 {
@@ -422,10 +422,10 @@ int simple_mutex_init(
 }
 
 /*
- * simple_mutex_destroy:
+ * xrc_impl_slim_mutex_destroy:
  *   - Clean up OS resources if needed.
  */
-int simple_mutex_destroy(
+int xrc_impl_slim_mutex_destroy(
     xrc_impl_slim_mutex* mutex
     )
 {
@@ -450,12 +450,12 @@ int simple_mutex_destroy(
 }
 
 /*
- * simple_mutex_lock:
+ * xrc_impl_slim_mutex_lock:
  *   - Fast path: CAS 0->1
  *   - Slow path: if that fails, set 1->2 if needed, then call _mutex_wait on '2',
  *                re-check, etc.
  */
-int simple_mutex_lock(
+int xrc_impl_slim_mutex_lock(
     xrc_impl_slim_mutex* mutex
     )
 {
@@ -520,11 +520,11 @@ int simple_mutex_lock(
 }
 
 /*
- * simple_mutex_unlock:
+ * xrc_impl_slim_mutex_unlock:
  *   - If old_state == 2, then we had waiters => set state=0 and _mutex_wake(1).
  *   - If old_state == 1, set to 0, no wake needed.
  */
-int simple_mutex_unlock(
+int xrc_impl_slim_mutex_unlock(
     xrc_impl_slim_mutex* mutex
     )
 {
@@ -551,10 +551,9 @@ int simple_mutex_unlock(
 }
 
 /*
- * xrc_impl_slim_mutexry_lock:
  *   - If state == 0, set to 1. Return 0 on success, EBUSY if locked.
  */
-int xrc_impl_slim_mutexry_lock(
+int xrc_impl_slim_mutex_try_lock(
     xrc_impl_slim_mutex* mutex
     )
 {

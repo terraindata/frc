@@ -30,7 +30,7 @@
 static long g_shared_counter = 0;
 
 /* Our custom mutex instance */
-static slim_mutex g_mutex;
+static xrc_impl_slim_mutex g_mutex;
 
 /*
  * Worker thread function:
@@ -40,22 +40,27 @@ static slim_mutex g_mutex;
  *      - Release lock
  *  2. Try a small test with try_lock/unlock.
  */
-static void *thread_func(void *arg)
+static void* thread_func(
+    void* arg
+    )
 {
     (void)arg; /* unused */
 
-    for (int i = 0; i < INCREMENTS_PER_THREAD; i++) {
-        int err = simple_mutex_lock(&g_mutex);
-        if (err != 0) {
-            fprintf(stderr, "ERROR: simple_mutex_lock failed in worker, err=%d\n", err);
+    for (int i = 0; i < INCREMENTS_PER_THREAD; i++)
+    {
+        int err = xrc_impl_slim_mutex_lock(&g_mutex);
+        if (err != 0)
+        {
+            fprintf(stderr, "ERROR: xrc_impl_slim_mutex_lock failed in worker, err=%d\n", err);
             pthread_exit((void*)1);
         }
 
         g_shared_counter++;
 
-        err = simple_mutex_unlock(&g_mutex);
-        if (err != 0) {
-            fprintf(stderr, "ERROR: simple_mutex_unlock failed in worker, err=%d\n", err);
+        err = xrc_impl_slim_mutex_unlock(&g_mutex);
+        if (err != 0)
+        {
+            fprintf(stderr, "ERROR: xrc_impl_slim_mutex_unlock failed in worker, err=%d\n", err);
             pthread_exit((void*)1);
         }
     }
@@ -67,10 +72,11 @@ static void *thread_func(void *arg)
      * We'll just do a small demonstration and not treat EBUSY as an error.
      */
     {
-        int err = slim_mutexry_lock(&g_mutex);
-        if (err == 0) {
+        int err = xrc_impl_slim_mutex_try_lock(&g_mutex);
+        if (err == 0)
+        {
             /* We got the lock, let's unlock it. */
-            simple_mutex_unlock(&g_mutex);
+            xrc_impl_slim_mutex_unlock(&g_mutex);
         }
         /* else if (err == EBUSY) => another thread acquired it first, that's okay. */
     }
@@ -78,11 +84,14 @@ static void *thread_func(void *arg)
     pthread_exit(NULL);
 }
 
-int main(void)
+int main(
+    void
+    )
 {
     /* Initialize the custom mutex */
-    int err = simple_mutex_init(&g_mutex);
-    if (err != 0) {
+    int err = xrc_impl_slim_mutex_init(&g_mutex);
+    if (err != 0)
+    {
         fprintf(stderr, "FAILED to init mutex, err=%d\n", err);
         return 1;
     }
@@ -90,21 +99,26 @@ int main(void)
     pthread_t threads[NUM_THREADS];
 
     /* Create threads */
-    for (int i = 0; i < NUM_THREADS; i++) {
-        if (pthread_create(&threads[i], NULL, thread_func, NULL) != 0) {
+    for (int i = 0; i < NUM_THREADS; i++)
+    {
+        if (pthread_create(&threads[i], NULL, thread_func, NULL) != 0)
+        {
             fprintf(stderr, "FAILED to create thread %d\n", i);
             return 1;
         }
     }
 
     /* Join threads */
-    for (int i = 0; i < NUM_THREADS; i++) {
-        void *retval = NULL;
-        if (pthread_join(threads[i], &retval) != 0) {
+    for (int i = 0; i < NUM_THREADS; i++)
+    {
+        void* retval = NULL;
+        if (pthread_join(threads[i], &retval) != 0)
+        {
             fprintf(stderr, "FAILED to join thread %d\n", i);
             return 1;
         }
-        if (retval != NULL) {
+        if (retval != NULL)
+        {
             /* The thread signaled an error by returning non-null */
             fprintf(stderr, "Thread %d had an error.\n", i);
             return 1;
@@ -112,8 +126,9 @@ int main(void)
     }
 
     /* Destroy the custom mutex */
-    err = simple_mutex_destroy(&g_mutex);
-    if (err != 0) {
+    err = xrc_impl_slim_mutex_destroy(&g_mutex);
+    if (err != 0)
+    {
         fprintf(stderr, "FAILED to destroy mutex, err=%d\n", err);
         return 1;
     }
@@ -122,7 +137,8 @@ int main(void)
      *   We expect: NUM_THREADS * INCREMENTS_PER_THREAD
      */
     const long expected = (long)NUM_THREADS * (long)INCREMENTS_PER_THREAD;
-    if (g_shared_counter != expected) {
+    if (g_shared_counter != expected)
+    {
         fprintf(stderr, "TEST FAILED: expected %ld, got %ld\n", expected, g_shared_counter);
         return 1;
     }
