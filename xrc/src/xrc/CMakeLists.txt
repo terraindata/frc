@@ -41,7 +41,7 @@ endforeach ()
 # Add the main library
 add_library(libxrc ${SOURCE_FILES})
 
-target_link_libraries(libxrc PRIVATE atomic)
+target_link_libraries(libxrc PRIVATE atomic c)
 
 # Add test executables
 foreach (TEST_FILE ${TEST_FILES})

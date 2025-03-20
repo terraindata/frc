@@ -9,17 +9,10 @@
 #include <stdatomic.h>
 
 #include <xrc/settings.h>
+#include <xrc/impl/hazard.h>
 
 #define XRC_LOCK_SIGNAL ((intptr_t)1)
 
-/**
- * A xrc hazard pointer.
- */
-typedef struct xrc_impl_hazard
-{
-    atomic_intptr_t pointer;
-    uint_fast16_t   thread_local_reference_count;
-} xrc_impl_hazard;
 
 /**
  * A thread-specific set of hazard pointers.
@@ -78,9 +71,6 @@ static void xrc_impl_hazard_set_clear(
     atomic_thread_fence(memory_order_release);
 }
 
-/**
- * Allocates a hazard pointer from the freelist.
- */
 static void xrc_impl_hazard_publish(
     xrc_impl_hazard* hazard,
     void*            source
@@ -112,7 +102,7 @@ static void* xrc_impl_hazard_publish_from(
         );
 
     // unlock and store pointer to hazard!
-    xrc_impl_hazard_publish(hazard, source_pointer);
+    xrc_impl_hazard_publish(hazard, source_pointer); // TODO: possibly could be relaxed ordering
 
     return source_pointer;
 }
