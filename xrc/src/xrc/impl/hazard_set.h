@@ -18,7 +18,7 @@
 typedef struct xrc_impl_hazard
 {
     atomic_intptr_t pointer;
-    uint_fast16_t   thread_local_reference_count;
+    size_t          thread_local_reference_count;
 } xrc_impl_hazard;
 
 
@@ -27,8 +27,10 @@ typedef struct xrc_impl_hazard
  */
 typedef struct xrc_impl_hazard_set
 {
-    xrc_impl_hazard* free_hazards[XRC_PER_THREAD_HAZARD_SET_LENGTH];
-    xrc_impl_hazard  hazards[XRC_PER_THREAD_HAZARD_SET_LENGTH];
+    xrc_impl_hazard*            free_hazards[XRC_PER_THREAD_HAZARD_SET_LENGTH];
+    xrc_impl_hazard             hazards[XRC_PER_THREAD_HAZARD_SET_LENGTH];
+    xrc_impl_cache_line_padding pad_0; // cache line padding
+    intptr_t                    previous_hazards[XRC_PER_THREAD_HAZARD_SET_LENGTH];
 } xrc_impl_hazard_set;
 
 /**

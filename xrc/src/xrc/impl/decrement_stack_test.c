@@ -24,11 +24,24 @@
 //-------------------------------------------------
 static size_t perform_owner_op(
     xrc_impl_decrement_stack* ds,
-    size_t               count,
-    int                  op,
-    bool                 verify_length
+    size_t                    count,
+    int                       op,
+    bool                      verify_length
     )
 {
+    if (verify_length)
+    {
+        bool empty = xrc_impl_decrement_stack_is_empty(ds);
+        printf("Empty = %d, count = %zu\n", empty, count);
+        TEST_ASSERT(empty == (count == 0), "is_empty mismatch in perform_owner_op");
+
+        // check length
+        size_t len = xrc_impl_decrement_stack_length(ds);
+        if (len != count)
+            printf("Length mismatch: %zu vs %zu\n", len, count);
+        TEST_ASSERT(len == count, "Length mismatch in perform_owner_op");
+    }
+
     switch (op)
     {
         case 0:
@@ -39,6 +52,7 @@ static size_t perform_owner_op(
                     void* val = (void*)(uintptr_t)(rand() % 100000 + 0xA000);
                     xrc_impl_decrement_stack_push(ds, val);
                     count++;
+                    printf("Pushed %p, length %zu =? %zu\n", val, xrc_impl_decrement_stack_length(ds), count);
                 }
                 break;
             }
@@ -46,9 +60,12 @@ static size_t perform_owner_op(
             {
                 // pop
                 void* tmp;
-                bool  ok = xrc_impl_decrement_stack_pop(ds, &tmp);
-                if (ok)
+                int   pop_status = xrc_impl_decrement_stack_pop(ds, &tmp);
+                if (pop_status == 0)
+                {
                     count--;
+                    printf("Popped %p, length %zu =? %zu\n", tmp, xrc_impl_decrement_stack_length(ds), count);
+                }
                 break;
             }
         case 2:
@@ -59,6 +76,7 @@ static size_t perform_owner_op(
                     void* val = (void*)(uintptr_t)(rand() % 100000 + 0xB000);
                     xrc_impl_decrement_stack_enqueue(ds, val);
                     count++;
+                    printf("Enqueued %p, length %zu =? %zu\n", val, xrc_impl_decrement_stack_length(ds), count);
                 }
                 break;
             }
@@ -66,36 +84,40 @@ static size_t perform_owner_op(
             {
                 // steal (owner stealing from own stack)
                 void* tmp;
-                bool  ok = xrc_impl_decrement_stack_steal(ds, &tmp);
-                if (ok)
+                int   pop_status = xrc_impl_decrement_stack_steal(ds, &tmp);
+                if (pop_status == 0)
+                {
                     count--;
+                    printf("Stole %p, length %zu =? %zu\n", tmp, xrc_impl_decrement_stack_length(ds), count);
+                }
                 break;
             }
     }
 
     if (verify_length)
     {
+        bool empty = xrc_impl_decrement_stack_is_empty(ds);
+        printf("Empty = %d, count = %zu\n", empty, count);
+        TEST_ASSERT(empty == (count == 0), "is_empty mismatch in perform_owner_op");
+
         // check length
         size_t len = xrc_impl_decrement_stack_length(ds);
+        if (len != count)
+            printf("Length mismatch: %zu vs %zu\n", len, count);
         TEST_ASSERT(len == count, "Length mismatch in perform_owner_op");
-        bool empty = xrc_impl_decrement_stack_is_empty(ds);
-        TEST_ASSERT(empty == (count == 0), "is_empty mismatch in perform_owner_op");
     }
     return count;
 }
 
 //-------------------------------------------------
-// Thief op: just tries a steal if not empty
+// Thief op: just tries a steal
 //-------------------------------------------------
 static void perform_thief_op(
     xrc_impl_decrement_stack* ds
     )
 {
-    if (!xrc_impl_decrement_stack_is_empty(ds))
-    {
-        void* tmp;
-        xrc_impl_decrement_stack_steal(ds, &tmp);
-    }
+    void* tmp;
+    xrc_impl_decrement_stack_steal(ds, &tmp);
 }
 
 //----------------------------------------------
@@ -130,12 +152,11 @@ TEST_CASE(test_single_thread_push_pop)
         {
             // pop
             void* got;
-            bool  ok = xrc_impl_decrement_stack_pop(&ds, &got);
-            TEST_ASSERT(ok == (ref_top > 0), "pop - empty mismatch in test1");
-            if (ok)
+            int   pop_result = xrc_impl_decrement_stack_pop(&ds, &got);
+            TEST_ASSERT((pop_result == 0) == (ref_top > 0), "pop - empty mismatch in test1");
+            if (pop_result == 0)
             {
                 void* expected = ref_stack[--ref_top];
-                TEST_ASSERT(ok, "pop fail in test1");
                 TEST_ASSERT(got == expected, "pop mismatch in test1");
             }
         }
@@ -151,13 +172,13 @@ TEST_CASE(test_single_thread_push_pop)
     void* got;
     while (ref_top > 0)
     {
-        void* expected = ref_stack[--ref_top];
-        bool  ok       = xrc_impl_decrement_stack_pop(&ds, &got);
-        TEST_ASSERT(ok, "final pop fail test1");
+        void* expected   = ref_stack[--ref_top];
+        int   pop_result = xrc_impl_decrement_stack_pop(&ds, &got);
+        TEST_ASSERT(pop_result== 0, "final pop fail test1");
         TEST_ASSERT(got == expected, "final pop mismatch test1");
     }
     TEST_ASSERT(xrc_impl_decrement_stack_is_empty(&ds), "not empty end test1");
-    TEST_ASSERT(xrc_impl_decrement_stack_pop(&ds, &got) == false, "pop from empty test1");
+    TEST_ASSERT(xrc_impl_decrement_stack_pop(&ds, &got) != 0, "pop from empty test1");
     fprintf(stderr, "[test_single_thread_push_pop] PASS\n");
 }
 
@@ -178,7 +199,8 @@ TEST_CASE(test_single_thread_mixed_ops_single_thread)
     for (int i = 0; i < OPS; i++)
     {
         int op = rand() % 4; // push/popl/enqueue/steal
-        count  = perform_owner_op(&ds, count, op, true);
+        printf("count = %zu, op = %d\n", count, op);
+        count = perform_owner_op(&ds, count, op, true);
     }
     fprintf(stderr, "[test_single_thread_mixed_ops_single_thread] PASS\n");
 }
@@ -191,20 +213,20 @@ TEST_CASE(test_single_thread_mixed_ops_single_thread)
 typedef struct
 {
     xrc_impl_decrement_stack* ds;
-    int                  operations;
+    int                       operations;
 } owner_thread_arg;
 
 typedef struct
 {
     xrc_impl_decrement_stack* ds;
-    int                  steals;
+    int                       steals;
 } thief_thread_arg;
 
 static void* owner_thread_func(
     void* argp
     )
 {
-    owner_thread_arg*    a  = (owner_thread_arg*)argp;
+    owner_thread_arg*         a  = (owner_thread_arg*)argp;
     xrc_impl_decrement_stack* ds = a->ds;
     srand(12345);
 

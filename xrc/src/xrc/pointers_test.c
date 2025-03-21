@@ -8,7 +8,7 @@
 #include <stdatomic.h>
 
 #include "pointers.h"
-#include "thread_data.h"
+#include <xrc/thread_data.h>
 
 static void dispose_test_int(
     void*  data,
@@ -178,7 +178,7 @@ static void multithreaded_test()
 
 int main()
 {
-    // simple_single_threaded_test();
+    simple_single_threaded_test();
     // multithreaded_test();
     return 0;
 }

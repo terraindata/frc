@@ -22,7 +22,7 @@ void xrc_impl_reduce_tree_init(
         atomic_store_explicit(
             &tree->nodes[i].value,
             initial_value,
-            i == 0 ? memory_order_relaxed : memory_order_release
+            memory_order_release
             );
     }
 }
@@ -45,7 +45,7 @@ int xrc_impl_reduce_tree_update_min_from_leaf(
 {
     size_t index = leaf_index + target->num_leaves;
 
-    while (index > 0)
+    while (index > 1)
     {
         size_t                    parent_index = index >> 1;
         xrc_impl_sequence_atomic* parent_ptr   = &target->nodes[parent_index].value;
@@ -55,10 +55,14 @@ int xrc_impl_reduce_tree_update_min_from_leaf(
         for (;;)
         {
             sibling_value = atomic_load_explicit(sibling_ptr, memory_order_acquire);
-            if (value > sibling_value)
-                break;
+            // if (value > sibling_value)
+            //     break;
 
             parent_value = atomic_load_explicit(parent_ptr, memory_order_acquire);
+            // if (parent_value == value)
+            //     return 0; // success, min unchanged
+
+            value = (value <= sibling_value) ? value : sibling_value;
             if (parent_value == value)
                 return 0; // success, min unchanged
 
@@ -69,7 +73,9 @@ int xrc_impl_reduce_tree_update_min_from_leaf(
                 memory_order_acq_rel,
                 memory_order_acquire
                 ))
+            {
                 break; // continue up the tree
+            }
         }
 
         index = parent_index;
@@ -180,65 +186,44 @@ int xrc_impl_reduce_tree_update_min_lock(
     }
 }
 
-void xrc_impl_reduce_tree_update_min_unlock(
-    xrc_impl_reduce_tree* target,
-    size_t                leaf_index,
-    xrc_impl_sequence     value
+void xrc_impl_reduce_tree_mutex_wake(
+    xrc_impl_sequence_atomic* node_value_ptr
     )
 {
-    value |= 3; // unlocked
-    size_t                    index          = leaf_index + target->num_leaves;
-    xrc_impl_sequence_atomic* node_value_ptr = &target->nodes[index].value;
-
-    // int result = xrc_impl_reduce_tree_update_min_from_leaf(
-    //     target,
-    //     leaf_index,
-    //     value
-    //     ); // update tree with unlocked value
-
-    xrc_impl_sequence previous_value = atomic_fetch_or_explicit(
-        node_value_ptr,
-        3,
-        memory_order_acq_rel
-        );
-
-    if (previous_value & 1)
-    {
-        // waiters were present: notify one
-        _mutex_wake(node_value_ptr, 1);
-    }
+    _mutex_wake(node_value_ptr, 1);
 }
 
-int xrc_impl_reduce_tree_update_min(
-    xrc_impl_reduce_tree* target,
-    size_t                leaf_index,
-    xrc_impl_sequence     value
-    )
-{
-    size_t                    index          = leaf_index + target->num_leaves;
-    xrc_impl_sequence_atomic* node_value_ptr = &target->nodes[index].value;
 
-    xrc_impl_sequence previous_value;
-    do
-    {
-        previous_value = atomic_load_explicit(node_value_ptr, memory_order_acquire);
-        if (previous_value >= value)
-            return -1; // leaf value is already greater than or equal to the new value
-    }
-    while (!atomic_compare_exchange_strong_explicit(
-        node_value_ptr,
-        &previous_value,
-        value,
-        memory_order_acq_rel,
-        memory_order_acquire
-        ));
-
-    return xrc_impl_reduce_tree_update_min_from_leaf(
-        target,
-        leaf_index,
-        value
-        );
-}
+// int xrc_impl_reduce_tree_update_min(
+//     xrc_impl_reduce_tree* target,
+//     size_t                leaf_index,
+//     xrc_impl_sequence     value
+//     )
+// {
+//     size_t                    index          = leaf_index + target->num_leaves;
+//     xrc_impl_sequence_atomic* node_value_ptr = &target->nodes[index].value;
+//
+//     xrc_impl_sequence previous_value;
+//     do
+//     {
+//         previous_value = atomic_load_explicit(node_value_ptr, memory_order_acquire);
+//         if (previous_value >= value)
+//             return -1; // leaf value is already greater than or equal to the new value
+//     }
+//     while (!atomic_compare_exchange_strong_explicit(
+//         node_value_ptr,
+//         &previous_value,
+//         value,
+//         memory_order_acq_rel,
+//         memory_order_acquire
+//         ));
+//
+//     return xrc_impl_reduce_tree_update_min_from_leaf(
+//         target,
+//         leaf_index,
+//         value
+//         );
+// }
 
 
 size_t xrc_impl_reduce_tree_get_max_index(

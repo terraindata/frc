@@ -13,6 +13,7 @@ thread_local xrc_impl_thread_data* xrc_impl_thread_local_thread_data;
 
 xrc_impl_control_data_s xrc_impl_control_data;
 
+
 void xrc_initialize()
 {
     atomic_store_explicit(&xrc_impl_control_data.epoch, 1, memory_order_release);
@@ -108,6 +109,7 @@ void xrc_detach_thread()
         );
 }
 
+
 static void xrc_impl_free(
     void* payload
     )
@@ -135,124 +137,6 @@ static void xrc_impl_free(
 }
 
 
-static bool xrc_impl_thread_data_scan(
-    xrc_impl_thread_data* target,
-    xrc_impl_sequence     max_scan_epoch
-    )
-{
-    xrc_impl_sequence start_epoch     = xrc_impl_get_epoch();
-    xrc_impl_sequence last_scan_epoch = xrc_impl_reduce_tree_get_leaf_value(
-                                            &xrc_impl_control_data.completed_scan_time_tree,
-                                            target->index,
-                                            memory_order_relaxed
-                                            ) >> 2;
-
-    if (start_epoch == last_scan_epoch
-        || max_scan_epoch >= start_epoch
-        || ((start_epoch + target->index) % XRC_EPOCH_ADVANCE_INTERVAL == 0))
-    {
-        start_epoch = xrc_impl_advance_epoch();
-    }
-
-    if (xrc_impl_reduce_tree_update_min_try_lock(
-            &xrc_impl_control_data.scan_time_tree,
-            target->index,
-            start_epoch << 2
-            ) < 0)
-        return false; // lost scan race: scan failed
-
-    xrc_impl_hazard_set* hazard_set = &target->hazard_set;
-    //TODO: consider increment / decrement elision based on previous value
-    for (size_t i = 0; i < XRC_PER_THREAD_HAZARD_SET_LENGTH; i++)
-    {
-        xrc_impl_hazard* hazard = &hazard_set->hazards[i];
-
-        // spin on lock signal...
-        // TODO: better implementation of this lock using a futex after a bit of spinning
-        intptr_t pointer;
-        do
-        {
-            pointer = atomic_load_explicit(&hazard->pointer, memory_order_acquire);
-        }
-        while (pointer == XRC_LOCK_SIGNAL);
-
-        xrc_impl_increment_reference_count((void*)pointer);
-        xrc_impl_buffer_decrement((void*)pointer); //won't be processed until next epoch
-    }
-
-    //TODO: consider if optimization is possible here...
-    xrc_impl_reduce_tree_update_min(
-        &xrc_impl_control_data.completed_scan_time_tree,
-        target->index,
-        start_epoch
-        );
-
-    xrc_impl_reduce_tree_update_min_unlock(
-        &xrc_impl_control_data.scan_time_tree,
-        target->index,
-        start_epoch << 2
-        );
-
-    // success
-    return true;
-}
-
-static bool xrc_impl_help_scan(
-    size_t            tiebreaker,
-    xrc_impl_sequence oldest_decrement_epoch
-    )
-{
-    xrc_impl_thread_data* target = NULL;
-
-    xrc_impl_sequence shifted_oldest_decrement_epoch = oldest_decrement_epoch << 2;
-
-    // first check if it makes sense to scan this thread's hazard pointers
-    if (xrc_impl_reduce_tree_get_leaf_value(
-            &xrc_impl_control_data.scan_time_tree,
-            xrc_impl_thread_local_thread_data->index,
-            memory_order_relaxed // it's ok if we sometimes miss here, so let it be relaxed
-            ) <= shifted_oldest_decrement_epoch)
-        target = xrc_impl_thread_local_thread_data;
-    else
-    {
-        //TODO: check a few random thread datas
-
-        int index = xrc_impl_reduce_tree_get_index_less_than_or_equal_to_value(
-            &xrc_impl_control_data.scan_time_tree,
-            tiebreaker,
-            shifted_oldest_decrement_epoch
-            );
-
-        if (index < 0)
-            return false; // failed to find a thread data to scan
-
-        target = &xrc_impl_control_data.thread_data_array[index];
-
-        // try to steal a decrement if our queue isn't too long and
-        // our stack is smaller than the target's stack
-        if (
-                target != xrc_impl_thread_local_thread_data
-                && (xrc_impl_decrement_queue_length(&xrc_impl_thread_local_thread_data->decrement_queue) <
-                    XRC_DECREMENT_QUEUE_MAX_LENGTH_TO_STEAL)
-                && (xrc_impl_decrement_stack_length(&target->decrement_stack) >
-                    xrc_impl_decrement_stack_length(&xrc_impl_thread_local_thread_data->decrement_stack))
-            )
-        {
-            void* stolen_decrement;
-            if (xrc_impl_decrement_stack_steal(&target->decrement_stack, &stolen_decrement))
-            {
-                xrc_impl_decrement_stack_enqueue(
-                    &xrc_impl_thread_local_thread_data->decrement_stack,
-                    stolen_decrement
-                    );
-            }
-        }
-    }
-
-    return xrc_impl_thread_data_scan(target, oldest_decrement_epoch);
-}
-
-
 static void xrc_impl_execute_decrement(
     void* target
     )
@@ -267,71 +151,223 @@ static void xrc_impl_execute_decrement(
     }
 }
 
+
+static void xrc_impl_thread_data_scan(
+    xrc_impl_thread_data* target
+    )
+{
+    xrc_impl_hazard_set* hazard_set = &target->hazard_set;
+    for (size_t i = 0; i < XRC_PER_THREAD_HAZARD_SET_LENGTH; i++)
+    {
+        xrc_impl_hazard* hazard = &hazard_set->hazards[i];
+
+        // spin on lock signal...
+        // TODO: better implementation of this lock using a futex after a bit of spinning
+        intptr_t pointer;
+        do
+        {
+            pointer = atomic_load_explicit(&hazard->pointer, memory_order_acquire);
+        }
+        while (pointer == XRC_LOCK_SIGNAL);
+
+        intptr_t* previous_hazard_ptr = &hazard_set->previous_hazards[i];
+        intptr_t  previous_hazard     = *previous_hazard_ptr;
+        if (previous_hazard != pointer)
+        {
+            *previous_hazard_ptr = pointer;
+
+            // immediately execute the old decrement
+            if (previous_hazard != (intptr_t)NULL)
+                xrc_impl_execute_decrement((void*)previous_hazard);
+
+            // increment reference count of new hazard
+            xrc_impl_increment_reference_count((void*)pointer);
+        }
+    }
+}
+
+static int xrc_impl_help_scan(
+    size_t            tiebreaker,
+    xrc_impl_sequence oldest_decrement_epoch,
+    bool              try_lock,
+    bool              try_local_if_eligible
+    )
+{
+    xrc_impl_thread_data* target                         = NULL;
+    xrc_impl_sequence     shifted_oldest_decrement_epoch = oldest_decrement_epoch << 2;
+
+    // first check if it makes sense to scan this thread's hazard pointers
+    if (try_local_if_eligible && xrc_impl_reduce_tree_get_leaf_value(
+            &xrc_impl_control_data.scan_time_tree,
+            xrc_impl_thread_local_thread_data->index,
+            memory_order_relaxed // it's ok if we sometimes miss here, so let it be relaxed
+            ) <= shifted_oldest_decrement_epoch)
+    {
+        target = xrc_impl_thread_local_thread_data;
+    }
+    else
+    {
+        int index = xrc_impl_reduce_tree_get_index_less_than_or_equal_to_value(
+            &xrc_impl_control_data.scan_time_tree,
+            tiebreaker,
+            shifted_oldest_decrement_epoch
+            );
+
+        if (index < 0)
+            return 1; // failed to find a thread data to scan
+
+        target = &xrc_impl_control_data.thread_data_array[index];
+
+        // try to steal a decrement if our queue isn't too long and
+        // our stack is smaller than the target's stack
+        if (
+                target != xrc_impl_thread_local_thread_data
+                && (xrc_impl_decrement_queue_length(&xrc_impl_thread_local_thread_data->decrement_queue) <
+                    XRC_DECREMENT_QUEUE_MAX_LENGTH_TO_STEAL)
+                && (xrc_impl_decrement_stack_length(&target->decrement_stack) >
+                    xrc_impl_decrement_stack_length(&xrc_impl_thread_local_thread_data->decrement_stack))
+            )
+        {
+            void* stolen_decrement;
+            if (xrc_impl_decrement_stack_steal(&target->decrement_stack, &stolen_decrement) == 0)
+            {
+                xrc_impl_decrement_stack_enqueue(
+                    &xrc_impl_thread_local_thread_data->decrement_stack,
+                    stolen_decrement
+                    );
+                return -1; // stole a decrement to process!
+            }
+        }
+    }
+
+    xrc_impl_sequence start_epoch     = xrc_impl_get_epoch();
+    xrc_impl_sequence last_scan_epoch = xrc_impl_reduce_tree_get_leaf_value(
+        &xrc_impl_control_data.completed_scan_time_tree,
+        target->index,
+        memory_order_relaxed
+        );
+
+    if (start_epoch == last_scan_epoch
+        || oldest_decrement_epoch >= start_epoch
+        || ((start_epoch + target->index) % XRC_EPOCH_ADVANCE_INTERVAL == 0))
+    {
+        start_epoch = xrc_impl_advance_epoch();
+    }
+
+    if (try_lock)
+    {
+        if (xrc_impl_reduce_tree_update_min_try_lock(
+                &xrc_impl_control_data.scan_time_tree,
+                target->index,
+                start_epoch << 2
+                ) < 0)
+            return 2; // lost scan race: scan failed
+    }
+    else
+    {
+        if (xrc_impl_reduce_tree_update_min_lock(
+                &xrc_impl_control_data.scan_time_tree,
+                target->index,
+                start_epoch << 2
+                ) < 0)
+            return 2; // lost scan race: scan failed
+    }
+
+    // ok we acquired the lock: scan the thread's hazard pointers
+    xrc_impl_thread_data_scan(target);
+
+    // now update the min completed scan time
+    xrc_impl_reduce_tree_update_min(
+        &xrc_impl_control_data.completed_scan_time_tree,
+        target->index,
+        start_epoch
+        );
+
+    // unlock the thread data
+    xrc_impl_reduce_tree_update_min_unlock(
+        &xrc_impl_control_data.scan_time_tree,
+        target->index,
+        start_epoch << 2
+        );
+
+    return 0; // success
+}
+
+
 void xrc_help_collect()
 {
     xrc_impl_thread_data*     this_threads_thread_data = xrc_impl_thread_local_thread_data;
     xrc_impl_decrement_queue* queue                    = &this_threads_thread_data->decrement_queue;
     xrc_impl_decrement_stack* stack                    = &this_threads_thread_data->decrement_stack;
 
+    //get current epoch
+    xrc_impl_sequence epoch = xrc_impl_get_epoch();
+
     // mark epoch of new decrements
-    xrc_impl_decrement_queue_mark_epoch_of_new_decrements(queue, xrc_impl_get_epoch());
+    xrc_impl_decrement_queue_mark_epoch_of_new_decrements(queue, epoch);
 
     // execute decrements
-    do
+    this_threads_thread_data->is_collecting = 1;
+    size_t scan_tiebreaker                  = this_threads_thread_data->index ^ epoch;
+    for (;;)
     {
         uint_fast64_t oldest_scan_epoch = xrc_impl_get_last_complete_scan_epoch();
 
-        this_threads_thread_data->is_collecting = 1;
-        for (size_t num_dequeues = XRC_MAX_DECREMENTS_PER_COLLECTION; num_dequeues > 0; num_dequeues--)
+        for (size_t num_dequeues = XRC_MAX_DECREMENTS_EXECUTED_PER_COLLECTION; num_dequeues > 0; num_dequeues--)
         {
-            // pop from decrement stack
-            for (;;)
-            {
-                void* stack_decrement_target;
-                if (!xrc_impl_decrement_stack_pop(stack, &stack_decrement_target))
-                    break; // stack empty
-
-                xrc_impl_execute_decrement(stack_decrement_target);
-
-                if (--num_dequeues <= 0) // max dequeues reached
-                    goto done_executing_decrements; // break out of outer loop
-            }
-
-            // dequeue from decrement queue
-            void*         queue_decrement_target;
+            // try to pop from decrement stack
             uint_fast64_t oldest_decrement_epoch;
-            int           pop_status = xrc_impl_decrement_queue_pop(
-                queue,
-                oldest_scan_epoch,
-                &queue_decrement_target,
-                &oldest_decrement_epoch
-                );
+            void*         decrement_target;
+            int           status_code = xrc_impl_decrement_stack_pop(stack, &decrement_target);
 
-            if (pop_status == 0)
+            if (status_code != 0)
             {
-                xrc_impl_execute_decrement(queue_decrement_target);
-            }
-            else if (pop_status > 0)
-            {
-                // ineligible decrements are waiting on a scan
-                // try to scan a thread's hazard pointers
-                // possibly also steal a decrement from the scanned thread
-                this_threads_thread_data->is_collecting = 0;
-                xrc_impl_help_scan(
-                    this_threads_thread_data->index ^ oldest_decrement_epoch,
-                    oldest_decrement_epoch
+                // stack empty: try to dequeue from decrement queue
+                status_code = xrc_impl_decrement_queue_pop(
+                    queue,
+                    oldest_scan_epoch,
+                    &decrement_target,
+                    &oldest_decrement_epoch
                     );
-                this_threads_thread_data->is_collecting = 1;
             }
-            else if (pop_status < 0)
+
+            if (status_code == 0)
             {
-                break; // empty decrement queue
+                // valid decrement from stack or queue: execute decrement
+                xrc_impl_execute_decrement(decrement_target);
+                continue;
             }
+
+            if (status_code < 0)
+                break; // empty decrement queue: no more decrements to execute
+
+            // ineligible decrements are waiting on a scan
+            // try to scan a thread's hazard pointers
+            // possibly also steal a decrement from the scanned thread
+            for (size_t scan_attempt = 0; status_code > 0; scan_attempt++)
+            {
+                status_code = xrc_impl_help_scan(
+                    scan_tiebreaker++,
+                    oldest_decrement_epoch,
+                    xrc_impl_decrement_queue_headroom(queue) >
+                    XRC_MIN_DECREMENT_QUEUE_HEADROOM_BEFORE_BLOCKING_SCAN
+                    && scan_attempt < XRC_MAX_ATTEMPTS_TO_HELP_SCAN_BEFORE_BLOCKING,
+                    scan_attempt == 0
+                    );
+            }
+
+            if (status_code == 0)
+            {
+                //successful scan
+                num_dequeues = ((num_dequeues < XRC_SCAN_TO_DECREMENT_WORK_CONVERSION_FACTOR) ?
+                                    0 :
+                                    num_dequeues - XRC_SCAN_TO_DECREMENT_WORK_CONVERSION_FACTOR) + 1;
+            } // (else stole a decrement to process)
         }
 
-    done_executing_decrements:
-        xrc_impl_thread_local_thread_data->is_collecting = 0;
         xrc_impl_decrement_queue_set_threshold(queue);
+        if (!xrc_impl_decrement_queue_is_at_threshold(queue))
+            break;
     }
-    while (xrc_impl_decrement_queue_is_at_threshold(queue));
+    xrc_impl_thread_local_thread_data->is_collecting = 0;
 }

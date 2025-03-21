@@ -38,8 +38,9 @@ static inline void xrc_impl_decrement_stack_initialize(
     xrc_impl_decrement_stack* target
     )
 {
-    atomic_store_explicit(&target->head_index, ((uint_fast64_t)1) << 48, memory_order_release);
-    atomic_store_explicit(&target->tail_index, ((uint_fast64_t)1) << 48, memory_order_release);
+    uint_fast64_t initial_value = ((uint_fast64_t)1) << 48;
+    atomic_store_explicit(&target->head_index, initial_value, memory_order_release);
+    atomic_store_explicit(&target->tail_index, initial_value, memory_order_release);
 }
 
 /**
@@ -68,7 +69,7 @@ static inline void xrc_impl_decrement_stack_push(
  * Wait-free.
  * Only called by the owner of the stack.
  */
-static inline bool xrc_impl_decrement_stack_pop(
+static inline int xrc_impl_decrement_stack_pop(
     xrc_impl_decrement_stack* target,
     void**                    element
     )
@@ -77,7 +78,7 @@ static inline bool xrc_impl_decrement_stack_pop(
     size_t tail = atomic_load_explicit(&target->tail_index, memory_order_acquire);
 
     if (head <= tail)
-        return false; // failure: empty
+        return -1; // failure: empty
 
     head -= 1;
 
@@ -87,7 +88,7 @@ static inline bool xrc_impl_decrement_stack_pop(
 
     // update head
     atomic_store_explicit(&target->head_index, head, memory_order_release);
-    return true; // success
+    return 0; // success
 }
 
 /**
@@ -144,16 +145,16 @@ static inline void xrc_impl_decrement_stack_enqueue(
  * Wait-free but will fail under contention on the tail.
  * Can also fail spuriously.
  */
-static inline bool xrc_impl_decrement_stack_steal(
+static inline int xrc_impl_decrement_stack_steal(
     xrc_impl_decrement_stack* target,
     void**                    element
     )
 {
-    size_t head = atomic_load_explicit(&target->head_index, memory_order_relaxed);
+    size_t head = atomic_load_explicit(&target->head_index, memory_order_acquire);
     size_t tail = atomic_load_explicit(&target->tail_index, memory_order_acquire);
 
     if (head <= tail)
-        return false; // failure: empty
+        return -1; // failure: empty
 
 
     size_t pos = tail % XRC_PER_THREAD_DECREMENT_STACK_LENGTH;
@@ -169,11 +170,11 @@ static inline bool xrc_impl_decrement_stack_steal(
         ))
     {
         // success => we stole element
-        return true;
+        return 0;
     }
 
     // failure => someone else stole element
-    return false;
+    return -2;
 }
 
 /**

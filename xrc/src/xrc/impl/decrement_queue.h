@@ -24,7 +24,7 @@ typedef struct xrc_impl_decrement_queue
 /**
  * Returns true if the queue is empty.
  */
-static int xrc_impl_decrement_queue_is_empty(
+static inline int xrc_impl_decrement_queue_is_empty(
     xrc_impl_decrement_queue* target
     )
 {
@@ -34,7 +34,7 @@ static int xrc_impl_decrement_queue_is_empty(
 /**
  * Returns true if the queue is full.
  */
-static int xrc_impl_decrement_queue_is_full(
+static inline int xrc_impl_decrement_queue_is_full(
     xrc_impl_decrement_queue* target
     )
 {
@@ -44,7 +44,7 @@ static int xrc_impl_decrement_queue_is_full(
 /**
  * Returns the number of elements in the queue.
  */
-static size_t xrc_impl_decrement_queue_length(
+static inline size_t xrc_impl_decrement_queue_length(
     xrc_impl_decrement_queue* target
     )
 {
@@ -66,13 +66,13 @@ static size_t xrc_impl_decrement_queue_headroom(
 /**
  * Initializes a decrement queue.
  */
-static void xrc_impl_decrement_queue_initialize(
+static inline void xrc_impl_decrement_queue_initialize(
     xrc_impl_decrement_queue* target
     )
 {
     target->tail                 = 0;
     target->head                 = 0;
-    target->collection_threshold = XRC_DECREMENT_QUEUE_BACKPRESSURE_FRACTION;
+    target->collection_threshold = XRC_DECREMENT_QUEUE_MAX_DECREMENTS_ENQUEUED_PER_COLLECTION;
     for (size_t i = 0; i < XRC_PER_THREAD_DECREMENT_QUEUE_CAPACITY; i++)
     {
         target->decrement_epochs[i]  = 0;
@@ -85,7 +85,7 @@ static void xrc_impl_decrement_queue_initialize(
  * The queue must not be full.
  * Returns true iff the collection threshold was reached.
  */
-static bool xrc_impl_decrement_queue_push(
+static inline bool xrc_impl_decrement_queue_push(
     xrc_impl_decrement_queue* target,
     // uint_fast64_t        epoch,
     void* element
@@ -104,17 +104,14 @@ static bool xrc_impl_decrement_queue_push(
  * Sets a new collection threshold based on the current headroom.
  * Uses linear feedback control to adjust the threshold.
  */
-static void xrc_impl_decrement_queue_set_threshold(
+static inline void xrc_impl_decrement_queue_set_threshold(
     xrc_impl_decrement_queue* target
     )
 {
     size_t queue_headroom = xrc_impl_decrement_queue_headroom(target);
-    size_t interval       = 0;
-    if (queue_headroom > XRC_PER_THREAD_DECREMENT_QUEUE_SOFT_LIMIT)
-    {
-        interval = (queue_headroom - XRC_PER_THREAD_DECREMENT_QUEUE_SOFT_LIMIT) /
-                   XRC_DECREMENT_QUEUE_BACKPRESSURE_FRACTION;
-    }
+    size_t interval       = queue_headroom / XRC_DECREMENT_QUEUE_FEEDBACK_FACTOR;
+    if (interval > XRC_DECREMENT_QUEUE_MAX_DECREMENTS_ENQUEUED_PER_COLLECTION)
+        interval = XRC_DECREMENT_QUEUE_MAX_DECREMENTS_ENQUEUED_PER_COLLECTION;
 
     target->collection_threshold = (target->head + interval) % XRC_PER_THREAD_DECREMENT_QUEUE_CAPACITY;
 }
@@ -122,7 +119,7 @@ static void xrc_impl_decrement_queue_set_threshold(
 /**
  * Returns true iff the queue is at the collection threshold.
  */
-static bool xrc_impl_decrement_queue_is_at_threshold(
+static inline bool xrc_impl_decrement_queue_is_at_threshold(
     xrc_impl_decrement_queue* target
     )
 {
@@ -132,7 +129,7 @@ static bool xrc_impl_decrement_queue_is_at_threshold(
 /**
  * Marks a upper bound on the creation time of newly enqueued decrements.
  */
-static void xrc_impl_decrement_queue_mark_epoch_of_new_decrements(
+static inline void xrc_impl_decrement_queue_mark_epoch_of_new_decrements(
     xrc_impl_decrement_queue* target,
     uint_fast64_t             epoch
     )
@@ -157,7 +154,7 @@ static void xrc_impl_decrement_queue_mark_epoch_of_new_decrements(
  *
  * If the element is eligible, the element is removed from the queue and element is set to that element.
  */
-static int xrc_impl_decrement_queue_pop(
+static inline int xrc_impl_decrement_queue_pop(
     xrc_impl_decrement_queue* target,
     uint_fast64_t             oldest_complete_scan_epoch,
     void**                    element,

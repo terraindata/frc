@@ -53,7 +53,7 @@ extern void xrc_impl_reduce_tree_destroy(
 /**
  * Gets the minimum value in the tree.
  */
-inline xrc_impl_sequence xrc_impl_reduce_tree_get_min(
+static inline xrc_impl_sequence xrc_impl_reduce_tree_get_min(
     xrc_impl_reduce_tree* tree
     )
 {
@@ -63,7 +63,7 @@ inline xrc_impl_sequence xrc_impl_reduce_tree_get_min(
 /**
  * Gets the value of a leaf node.
  */
-inline xrc_impl_sequence xrc_impl_reduce_tree_get_leaf_value(
+static inline xrc_impl_sequence xrc_impl_reduce_tree_get_leaf_value(
     xrc_impl_reduce_tree* target,
     size_t                leaf_index,
     memory_order          order
@@ -108,22 +108,49 @@ extern int xrc_impl_reduce_tree_update_min_lock(
     xrc_impl_sequence     value
     );
 
-extern void xrc_impl_reduce_tree_update_min_unlock(
-    xrc_impl_reduce_tree* target,
-    size_t                leaf_index,
-    xrc_impl_sequence     value
+extern void xrc_impl_reduce_tree_mutex_wake(
+    xrc_impl_sequence_atomic* node_value_ptr
     );
 
-/**
- * Updates the tree by setting the value of a leaf node to a given value.
- * Returns -1 if the leaf value is already greater than or equal to the new value.
- * Returns 0 if the root (min) value is unchanged, 1 if it is updated.
- */
-extern int xrc_impl_reduce_tree_update_min(
+static inline void xrc_impl_reduce_tree_update_min_unlock(
     xrc_impl_reduce_tree* target,
     size_t                leaf_index,
     xrc_impl_sequence     value
-    );
+    )
+{
+    value |= 3; // unlocked
+    size_t                    index          = leaf_index + target->num_leaves;
+    xrc_impl_sequence_atomic* node_value_ptr = &target->nodes[index].value;
+
+    // int result = xrc_impl_reduce_tree_update_min_from_leaf(
+    //     target,
+    //     leaf_index,
+    //     value
+    //     ); // update tree with unlocked value
+
+    xrc_impl_sequence previous_value = atomic_fetch_or_explicit(
+        node_value_ptr,
+        3,
+        memory_order_acq_rel
+        );
+
+    if (previous_value & 1)
+    {
+        // waiters were present: notify one
+        xrc_impl_reduce_tree_mutex_wake(node_value_ptr);
+    }
+}
+
+// /**
+//  * Updates the tree by setting the value of a leaf node to a given value.
+//  * Returns -1 if the leaf value is already greater than or equal to the new value.
+//  * Returns 0 if the root (min) value is unchanged, 1 if it is updated.
+//  */
+// extern int xrc_impl_reduce_tree_update_min(
+//     xrc_impl_reduce_tree* target,
+//     size_t                leaf_index,
+//     xrc_impl_sequence     value
+//     );
 
 /**
  * Gets the index of the maximum value in the tree.

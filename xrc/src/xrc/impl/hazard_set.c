@@ -17,10 +17,13 @@ void xrc_impl_hazard_set_initialize(
             );
         hazard->thread_local_reference_count = 0;
         hazard_set->free_hazards[i]          = &hazard_set->hazards[i];
+        hazard_set->previous_hazards[i]      = (intptr_t)NULL;
     }
 
     xrc_impl_thread_local_hazard_set_head =
         &hazard_set->free_hazards[XRC_PER_THREAD_HAZARD_SET_LENGTH - 1];
+
+    atomic_thread_fence(memory_order_release);
 }
 
 void xrc_impl_hazard_set_clear(
@@ -29,7 +32,8 @@ void xrc_impl_hazard_set_clear(
 {
     for (int i = 0; i < XRC_PER_THREAD_HAZARD_SET_LENGTH; i++)
     {
-        xrc_impl_hazard* hazard = &hazard_set->hazards[i];
+        xrc_impl_hazard* hazard         = &hazard_set->hazards[i];
+        hazard_set->previous_hazards[i] = (intptr_t)NULL;
         atomic_store_explicit(
             &hazard->pointer,
             (intptr_t)NULL,
@@ -39,5 +43,3 @@ void xrc_impl_hazard_set_clear(
 
     atomic_thread_fence(memory_order_release);
 }
-
-

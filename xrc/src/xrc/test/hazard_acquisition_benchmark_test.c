@@ -147,7 +147,7 @@ typedef struct
 
 // Method 1: Busy signal locking using an acquire-release fence
 
-inline void* acquire_lock_fence(
+static inline void* acquire_lock_fence(
     atomic_intptr_t* hazard,
     atomic_intptr_t* shared_pointer
     )
@@ -159,7 +159,7 @@ inline void* acquire_lock_fence(
     return (void*)v;
 }
 
-inline void release_lock_fence(
+static inline void release_lock_fence(
     atomic_intptr_t* hazard
     )
 {
@@ -207,7 +207,7 @@ int worker_lock_fence(
 
 // Method 1.1: Busy signal locking using an acquire-release fence and release order to set the hazard
 
-inline void* acquire_lock_fence_release(
+static inline void* acquire_lock_fence_release(
     atomic_intptr_t* hazard,
     atomic_intptr_t* shared_pointer
     )
@@ -259,7 +259,7 @@ int worker_lock_fence_release(
 }
 
 // Method 2: Busy signal locking using sequentially consistent operations.
-inline void* acquire_lock_seq_cst(
+static inline void* acquire_lock_seq_cst(
     atomic_intptr_t* hazard,
     atomic_intptr_t* shared_pointer
     )
@@ -270,7 +270,7 @@ inline void* acquire_lock_seq_cst(
     return (void*)v;
 }
 
-inline void release_lock_seq_cst(
+static inline void release_lock_seq_cst(
     atomic_intptr_t* hazard
     )
 {
@@ -317,7 +317,7 @@ int worker_lock_seq_cst(
 
 
 // Method 3: Pointer address based hazards using an acquire-release fence.
-inline void* acquire_pointer_fence(
+static inline void* acquire_pointer_fence(
     atomic_intptr_t* hazard,
     atomic_intptr_t* shared_pointer
     )
@@ -328,7 +328,7 @@ inline void* acquire_pointer_fence(
     return (void*)v;
 }
 
-inline void release_pointer_fence(
+static inline void release_pointer_fence(
     atomic_intptr_t* hazard
     )
 {
@@ -375,7 +375,7 @@ int worker_pointer_fence(
 
 
 // Method 4: Pointer address based hazards using sequentially consistent operations.
-inline void* acquire_pointer_seq_cst(
+static inline void* acquire_pointer_seq_cst(
     atomic_intptr_t* hazard,
     atomic_intptr_t* shared_pointer
     )
@@ -385,7 +385,7 @@ inline void* acquire_pointer_seq_cst(
     return (void*)v;
 }
 
-inline void release_pointer_seq_cst(
+static inline void release_pointer_seq_cst(
     atomic_intptr_t* hazard
     )
 {
@@ -432,7 +432,7 @@ int worker_pointer_seq_cst(
 
 
 // Method 5: Referent certification using a release store and an acquire load.
-inline void* acquire_cert_acq_rel(
+static inline void* acquire_cert_acq_rel(
     atomic_intptr_t* hazard,
     atomic_intptr_t* shared_pointer
     )
@@ -449,7 +449,7 @@ inline void* acquire_cert_acq_rel(
     return (void*)v;
 }
 
-inline void release_cert_acq_rel(
+static inline void release_cert_acq_rel(
     atomic_intptr_t* hazard
     )
 {
@@ -496,7 +496,7 @@ int worker_cert_acq_rel(
 
 
 // Method 6: Referent certification using sequentially consistent operations.
-inline void* acquire_cert_seq_cst(
+static inline void* acquire_cert_seq_cst(
     atomic_intptr_t* hazard,
     atomic_intptr_t* shared_pointer
     )
@@ -513,7 +513,7 @@ inline void* acquire_cert_seq_cst(
     return (void*)v;
 }
 
-inline void release_cert_seq_cst(
+static inline void release_cert_seq_cst(
     atomic_intptr_t* hazard
     )
 {
@@ -654,8 +654,8 @@ int main(
     void
     )
 {
-    int traversals   = 1;
-    int thread_count = 16;
+    int traversals   = 4;
+    int thread_count = 4;
     // if (argc >= 2)
     //     traversals = atoi(argv[1]);
     // if (argc >= 3)
