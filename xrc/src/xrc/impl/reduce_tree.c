@@ -4,6 +4,8 @@
 
 #include "reduce_tree.h"
 
+#include <stdbool.h>
+
 #include "mutex_util.h"
 
 void xrc_impl_reduce_tree_init(
@@ -48,35 +50,53 @@ int xrc_impl_reduce_tree_update_min_from_leaf(
     while (index > 1)
     {
         size_t                    parent_index = index >> 1;
-        xrc_impl_sequence_atomic* parent_ptr   = &target->nodes[parent_index].value;
-        xrc_impl_sequence_atomic* sibling_ptr  = &target->nodes[index ^ 1].value;
-        xrc_impl_sequence         sibling_value, parent_value, new_parent_value;
+        xrc_impl_sequence_atomic* current      = &target->nodes[index].value;
+        xrc_impl_sequence_atomic* sibling      = &target->nodes[index ^ 1].value;
+        xrc_impl_sequence_atomic* parent       = &target->nodes[parent_index].value;
 
-        for (;;)
+        xrc_impl_sequence sibling_value, parent_value;
+
+        parent_value = atomic_load_explicit(parent, memory_order_acquire);
+        for (bool updated = false;;)
         {
-            sibling_value = atomic_load_explicit(sibling_ptr, memory_order_acquire);
-            // if (value > sibling_value)
-            //     break;
+            atomic_thread_fence(memory_order_acquire);
+            value         = atomic_load_explicit(current, memory_order_relaxed);
+            sibling_value = atomic_load_explicit(sibling, memory_order_relaxed);
 
-            parent_value = atomic_load_explicit(parent_ptr, memory_order_acquire);
-            // if (parent_value == value)
-            //     return 0; // success, min unchanged
+            xrc_impl_sequence computed_parent_value = (value <= sibling_value) ? value : sibling_value;
 
-            value = (value <= sibling_value) ? value : sibling_value;
-            if (parent_value == value)
-                return 0; // success, min unchanged
+            // printf(
+            //     "%lu %lu %lu %lu %lu %lu %i\n",
+            //     index,
+            //     parent_index,
+            //     value,
+            //     sibling_value,
+            //     parent_value,
+            //     computed_parent_value,
+            //     updated
+            //     );
+            if (parent_value == computed_parent_value)
+            {
+                if (updated)
+                {
+                    // printf("updated break: %lu\n", index);
+                    break; // updated and result verified, continue propagation
+                }
+                // printf("terminate %lu\n", index);
+                return 0; // success, min unchanged, terminate propagation
+            }
 
-            if (atomic_compare_exchange_strong_explicit(
-                parent_ptr,
+            updated = atomic_compare_exchange_weak_explicit(
+                parent,
                 &parent_value,
-                value,
+                computed_parent_value,
                 memory_order_acq_rel,
                 memory_order_acquire
-                ))
-            {
-                break; // continue up the tree
-            }
+                );
+            if (updated)
+                parent_value = computed_parent_value;
         }
+
 
         index = parent_index;
     }
@@ -232,7 +252,7 @@ size_t xrc_impl_reduce_tree_get_max_index(
     )
 {
     size_t index = 1;
-    for (int height = (int)(target->power); height > 0; --height)
+    for (size_t height = target->power; height > 0; --height)
     {
         size_t            left_index  = index << 1;
         size_t            right_index = left_index + 1;
@@ -261,7 +281,7 @@ int xrc_impl_reduce_tree_get_index_less_than_or_equal_to_value(
     )
 {
     int index = 1;
-    for (int height = (int)(target->power); height > 0; --height)
+    for (size_t height = target->power; height > 0; --height)
     {
         int               left_index  = index << 1;
         int               right_index = left_index | 1;
@@ -298,4 +318,33 @@ int xrc_impl_reduce_tree_get_index_less_than_or_equal_to_value(
     }
 
     return index - target->num_leaves;
+}
+
+void xrc_impl_reduce_tree_pretty_print(
+    xrc_impl_reduce_tree* tree
+    )
+{
+    for (size_t leaf_index = 0; leaf_index < tree->num_leaves; leaf_index++)
+    {
+        printf(
+            "%lu ?= %lu",
+            leaf_index,
+            xrc_impl_reduce_tree_get_leaf_value(tree, leaf_index, memory_order_acquire)
+            );
+
+        size_t index = leaf_index + tree->num_leaves;
+        for (size_t height = tree->power; height > 0; --height)
+        {
+            if (index & 1)
+                break;
+            index >>= 1;
+            printf(
+                "\t\t\t%lu [%lu]",
+                atomic_load_explicit(&tree->nodes[index].value, memory_order_acquire),
+                index
+                );
+        }
+
+        printf("\n");
+    }
 }

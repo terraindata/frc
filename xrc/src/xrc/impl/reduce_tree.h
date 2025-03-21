@@ -171,3 +171,8 @@ extern int xrc_impl_reduce_tree_get_index_less_than_or_equal_to_value(
     size_t                tiebreaker,
     xrc_impl_sequence     value
     );
+
+
+extern void xrc_impl_reduce_tree_pretty_print(
+    xrc_impl_reduce_tree* tree
+    );

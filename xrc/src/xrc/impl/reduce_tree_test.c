@@ -9,6 +9,10 @@
 
 #include "reduce_tree.h"
 
+#define TEST_ASSERT(expr, msg) \
+do { if (!(expr)) { fprintf(stderr, "Test failure in %s (line %d): %s\n", __FILE__, __LINE__, msg); exit(1);} } while(0)
+#define TEST_CASE(name) static void name()
+
 void test_reduce_tree_init()
 {
     xrc_impl_reduce_tree tree;
@@ -18,26 +22,59 @@ void test_reduce_tree_init()
     xrc_impl_reduce_tree_destroy(&tree);
 }
 
+void xrc_impl_reduce_tree_pretty_print_with_leaf_values_array(
+    xrc_impl_reduce_tree* tree,
+    uint_fast64_t*        leaf_values
+    )
+{
+    for (size_t leaf_index = 0; leaf_index < tree->num_leaves; leaf_index++)
+    {
+        printf(
+            "leaf_values[%zu] = %lu ?= %lu",
+            leaf_index,
+            leaf_values[leaf_index],
+            xrc_impl_reduce_tree_get_leaf_value(tree, leaf_index, memory_order_acquire)
+            );
+
+        size_t index = leaf_index + tree->num_leaves;
+        for (size_t height = tree->power; height > 0; --height)
+        {
+            if (index & 1)
+                break;
+            index >>= 1;
+            printf(
+                "\t\t\t%lu [%lu]",
+                atomic_load_explicit(&tree->nodes[index].value, memory_order_acquire),
+                index
+                );
+        }
+
+        printf("\n");
+    }
+}
+
 void test_reduce_tree_min_concurrency_single_threaded()
 {
-    size_t power = 12;
+    size_t power = 4;
+
+    size_t const max_value = 99999;
+    size_t const min_value = 10000;
 
     xrc_impl_reduce_tree tree;
-    xrc_impl_reduce_tree_init(&tree, power, UINT64_MAX);
+    xrc_impl_reduce_tree_init(&tree, power, max_value);
 
     uint_fast64_t* leaf_values = (uint_fast64_t*)malloc(sizeof(uint_fast64_t) * tree.num_leaves);
     for (size_t i      = 0; i < tree.num_leaves; i++)
-        leaf_values[i] = UINT64_MAX;
+        leaf_values[i] = max_value;
 
-    uint_fast64_t min_so_far = UINT64_MAX;
     for (size_t i = 0; i < 1024 * 500; i++)
     {
         size_t        leaf_index = rand() % tree.num_leaves;
-        uint_fast64_t value      = i + (rand() % 1024);
-        min_so_far               = value < min_so_far ? value : min_so_far;
+        uint_fast64_t value      = min_value + (rand() % (max_value - min_value));
 
         leaf_values[leaf_index] = value;
         xrc_impl_reduce_tree_set_leaf_value(&tree, leaf_index, value);
+        // xrc_impl_reduce_tree_pretty_print(&tree, leaf_values);
 
         if (rand() % 8 == 0)
         {
@@ -47,7 +84,13 @@ void test_reduce_tree_min_concurrency_single_threaded()
             for (size_t j  = 0; j < tree.num_leaves; j++)
                 verify_min = leaf_values[j] < verify_min ? leaf_values[j] : verify_min;
 
-            assert(current_min == verify_min);
+            if (current_min != verify_min)
+            {
+                printf("current_min: %lu, verify_min: %lu\n", current_min, verify_min);
+                xrc_impl_reduce_tree_pretty_print_with_leaf_values_array(&tree, leaf_values);
+            }
+
+            TEST_ASSERT(current_min == verify_min, "current_min != verify_min");
         }
     }
 

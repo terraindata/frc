@@ -277,7 +277,7 @@ static int xrc_impl_help_scan(
     xrc_impl_thread_data_scan(target);
 
     // now update the min completed scan time
-    xrc_impl_reduce_tree_update_min(
+    xrc_impl_reduce_tree_set_leaf_value(
         &xrc_impl_control_data.completed_scan_time_tree,
         target->index,
         start_epoch
