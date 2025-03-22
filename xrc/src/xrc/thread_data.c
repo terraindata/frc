@@ -16,7 +16,7 @@ xrc_impl_control_data_s xrc_impl_control_data;
 
 void xrc_initialize()
 {
-    atomic_store_explicit(&xrc_impl_control_data.epoch, 1, memory_order_release);
+    atomic_store_explicit(&xrc_impl_control_data.epoch, XRC_EPOCH_INCREMENT, memory_order_release);
     xrc_impl_reduce_tree_init(&xrc_impl_control_data.scan_time_tree, XRC_REDUCE_TREE_POWER, UINT64_MAX);
     xrc_impl_reduce_tree_init(&xrc_impl_control_data.completed_scan_time_tree, XRC_REDUCE_TREE_POWER, UINT64_MAX);
 
@@ -49,7 +49,11 @@ uint_fast64_t xrc_impl_get_epoch()
 
 uint_fast64_t xrc_impl_advance_epoch()
 {
-    return 1 + atomic_fetch_add_explicit(&xrc_impl_control_data.epoch, 1, memory_order_acq_rel);
+    return XRC_EPOCH_INCREMENT + atomic_fetch_add_explicit(
+               &xrc_impl_control_data.epoch,
+               XRC_EPOCH_INCREMENT,
+               memory_order_acq_rel
+               );
 }
 
 uint_fast64_t xrc_impl_get_last_complete_scan_epoch()
@@ -79,7 +83,11 @@ int xrc_attach_thread()
         thread_data->index,
         epoch
         );
-    xrc_impl_reduce_tree_set_leaf_value(&xrc_impl_control_data.scan_time_tree, thread_data->index, epoch);
+    xrc_impl_reduce_tree_set_leaf_value(
+        &xrc_impl_control_data.scan_time_tree,
+        thread_data->index,
+        epoch | (XRC_EPOCH_INCREMENT - 1) // unlocked state
+        );
 
     xrc_impl_thread_local_thread_data = thread_data;
     return 0; // success
@@ -193,15 +201,14 @@ static int xrc_impl_help_scan(
     bool              try_local_if_eligible
     )
 {
-    xrc_impl_thread_data* target                         = NULL;
-    xrc_impl_sequence     shifted_oldest_decrement_epoch = oldest_decrement_epoch << 2;
+    xrc_impl_thread_data* target = NULL;
 
     // first check if it makes sense to scan this thread's hazard pointers
     if (try_local_if_eligible && xrc_impl_reduce_tree_get_leaf_value(
             &xrc_impl_control_data.scan_time_tree,
             xrc_impl_thread_local_thread_data->index,
             memory_order_relaxed // it's ok if we sometimes miss here, so let it be relaxed
-            ) <= shifted_oldest_decrement_epoch)
+            ) <= (oldest_decrement_epoch | (XRC_EPOCH_INCREMENT - 1)))
     {
         target = xrc_impl_thread_local_thread_data;
     }
@@ -210,7 +217,7 @@ static int xrc_impl_help_scan(
         int index = xrc_impl_reduce_tree_get_index_less_than_or_equal_to_value(
             &xrc_impl_control_data.scan_time_tree,
             tiebreaker,
-            shifted_oldest_decrement_epoch
+            oldest_decrement_epoch | (XRC_EPOCH_INCREMENT - 1)
             );
 
         if (index < 0)
@@ -242,10 +249,10 @@ static int xrc_impl_help_scan(
 
     xrc_impl_sequence start_epoch     = xrc_impl_get_epoch();
     xrc_impl_sequence last_scan_epoch = xrc_impl_reduce_tree_get_leaf_value(
-        &xrc_impl_control_data.completed_scan_time_tree,
-        target->index,
-        memory_order_relaxed
-        );
+                                            &xrc_impl_control_data.completed_scan_time_tree,
+                                            target->index,
+                                            memory_order_relaxed
+                                            ) & ~(XRC_EPOCH_INCREMENT - 1);
 
     if (start_epoch == last_scan_epoch
         || oldest_decrement_epoch >= start_epoch
@@ -259,7 +266,7 @@ static int xrc_impl_help_scan(
         if (xrc_impl_reduce_tree_update_min_try_lock(
                 &xrc_impl_control_data.scan_time_tree,
                 target->index,
-                start_epoch << 2
+                start_epoch
                 ) < 0)
             return 2; // lost scan race: scan failed
     }
@@ -268,13 +275,28 @@ static int xrc_impl_help_scan(
         if (xrc_impl_reduce_tree_update_min_lock(
                 &xrc_impl_control_data.scan_time_tree,
                 target->index,
-                start_epoch << 2
+                start_epoch
                 ) < 0)
             return 2; // lost scan race: scan failed
     }
 
-    // ok we acquired the lock: scan the thread's hazard pointers
+    // ok we acquired the lock.
+    // // update start time if changed:
+    // xrc_impl_sequence current_start_epoch = xrc_impl_get_epoch();
+    // if (start_epoch != current_start_epoch)
+    // {
+    //     start_epoch = current_start_epoch;
+    //     xrc_impl_reduce_tree_set_leaf_value(
+    //         &xrc_impl_control_data.scan_time_tree,
+    //         target->index,
+    //         start_epoch
+    //         );
+    // }
+
+    // scan the thread's hazard pointers
     xrc_impl_thread_data_scan(target);
+
+    printf("Scanned thread %zu with epoch %lu\n", target->index, start_epoch);
 
     // now update the min completed scan time
     xrc_impl_reduce_tree_set_leaf_value(
@@ -287,7 +309,7 @@ static int xrc_impl_help_scan(
     xrc_impl_reduce_tree_update_min_unlock(
         &xrc_impl_control_data.scan_time_tree,
         target->index,
-        start_epoch << 2
+        start_epoch
         );
 
     return 0; // success
@@ -346,6 +368,11 @@ void xrc_help_collect()
             // possibly also steal a decrement from the scanned thread
             for (size_t scan_attempt = 0; status_code > 0; scan_attempt++)
             {
+                printf("epoch: %lu\n", xrc_impl_get_epoch());
+                printf("scan time tree:\n");
+                xrc_impl_reduce_tree_pretty_print(&xrc_impl_control_data.scan_time_tree);
+                printf("completed scan time tree:\n");
+                xrc_impl_reduce_tree_pretty_print(&xrc_impl_control_data.completed_scan_time_tree);
                 status_code = xrc_impl_help_scan(
                     scan_tiebreaker++,
                     oldest_decrement_epoch,

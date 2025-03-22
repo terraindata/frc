@@ -130,6 +130,7 @@ int xrc_impl_reduce_tree_update_min_try_lock(
     xrc_impl_sequence     value
     )
 {
+
     size_t                    index          = leaf_index + target->num_leaves;
     xrc_impl_sequence_atomic* node_value_ptr = &target->nodes[index].value;
 
@@ -183,7 +184,6 @@ int xrc_impl_reduce_tree_update_min_lock(
         if (previous_value >= value)
             return -1; // leaf value is already greater than or equal to the new value
 
-
         xrc_impl_sequence state = previous_value & 3;
 
         if (state == 0)
@@ -193,7 +193,7 @@ int xrc_impl_reduce_tree_update_min_lock(
             atomic_compare_exchange_strong_explicit(
                 node_value_ptr,
                 &previous_value,
-                value | 1,
+                previous_value | 1,
                 memory_order_acq_rel,
                 memory_order_acquire
                 );
@@ -212,39 +212,6 @@ void xrc_impl_reduce_tree_mutex_wake(
 {
     _mutex_wake(node_value_ptr, 1);
 }
-
-
-// int xrc_impl_reduce_tree_update_min(
-//     xrc_impl_reduce_tree* target,
-//     size_t                leaf_index,
-//     xrc_impl_sequence     value
-//     )
-// {
-//     size_t                    index          = leaf_index + target->num_leaves;
-//     xrc_impl_sequence_atomic* node_value_ptr = &target->nodes[index].value;
-//
-//     xrc_impl_sequence previous_value;
-//     do
-//     {
-//         previous_value = atomic_load_explicit(node_value_ptr, memory_order_acquire);
-//         if (previous_value >= value)
-//             return -1; // leaf value is already greater than or equal to the new value
-//     }
-//     while (!atomic_compare_exchange_strong_explicit(
-//         node_value_ptr,
-//         &previous_value,
-//         value,
-//         memory_order_acq_rel,
-//         memory_order_acquire
-//         ));
-//
-//     return xrc_impl_reduce_tree_update_min_from_leaf(
-//         target,
-//         leaf_index,
-//         value
-//         );
-// }
-
 
 size_t xrc_impl_reduce_tree_get_max_index(
     xrc_impl_reduce_tree* target,

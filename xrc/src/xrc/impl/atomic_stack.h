@@ -12,13 +12,13 @@
 typedef struct xrc_impl_stack_node
 {
     struct xrc_impl_stack_node* next;
-    void*                  data;
+    void*                       data;
 } xrc_impl_stack_node;
 
 typedef struct xrc_impl_stack_ptr
 {
     struct xrc_impl_stack_node* ptr;
-    uint64_t               counter;
+    uint64_t                    counter;
 } xrc_impl_stack_ptr;
 
 typedef
@@ -30,7 +30,7 @@ typedef struct xrc_impl_atomic_stack
     xrc_impl_atomic_stack_ptr head;
 } xrc_impl_atomic_stack;
 
-static void xrc_impl_atomic_stack_init(
+static inline void xrc_impl_atomic_stack_init(
     xrc_impl_atomic_stack* stack
     )
 {
@@ -39,7 +39,7 @@ static void xrc_impl_atomic_stack_init(
 }
 
 
-static void xrc_impl_atomic_stack_push_intrusive(
+static inline void xrc_impl_atomic_stack_push_intrusive(
     xrc_impl_atomic_stack* stack,
     xrc_impl_stack_node*   node
     )
@@ -62,18 +62,18 @@ static void xrc_impl_atomic_stack_push_intrusive(
     }
 }
 
-static void xrc_impl_atomic_stack_push(
+static inline void xrc_impl_atomic_stack_push(
     xrc_impl_atomic_stack* stack,
-    void*             data
+    void*                  data
     )
 {
     xrc_impl_stack_node* new_node = (xrc_impl_stack_node*)malloc(sizeof(xrc_impl_stack_node));
-    new_node->data           = data;
+    new_node->data                = data;
     xrc_impl_atomic_stack_push_intrusive(stack, new_node);
 }
 
 
-static xrc_impl_stack_node* xrc_impl_atomic_stack_pop_intrusive(
+static inline xrc_impl_stack_node* xrc_impl_atomic_stack_pop_intrusive(
     xrc_impl_atomic_stack* stack
     )
 {
@@ -101,7 +101,7 @@ static xrc_impl_stack_node* xrc_impl_atomic_stack_pop_intrusive(
     return old_head.ptr;
 }
 
-static void* xrc_impl_atomic_stack_pop(
+static inline void* xrc_impl_atomic_stack_pop(
     xrc_impl_atomic_stack* stack
     )
 {

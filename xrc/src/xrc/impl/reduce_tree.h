@@ -118,15 +118,8 @@ static inline void xrc_impl_reduce_tree_update_min_unlock(
     xrc_impl_sequence     value
     )
 {
-    value |= 3; // unlocked
     size_t                    index          = leaf_index + target->num_leaves;
     xrc_impl_sequence_atomic* node_value_ptr = &target->nodes[index].value;
-
-    // int result = xrc_impl_reduce_tree_update_min_from_leaf(
-    //     target,
-    //     leaf_index,
-    //     value
-    //     ); // update tree with unlocked value
 
     xrc_impl_sequence previous_value = atomic_fetch_or_explicit(
         node_value_ptr,
@@ -134,11 +127,9 @@ static inline void xrc_impl_reduce_tree_update_min_unlock(
         memory_order_acq_rel
         );
 
+    // if waiters were present notify one
     if (previous_value & 1)
-    {
-        // waiters were present: notify one
         xrc_impl_reduce_tree_mutex_wake(node_value_ptr);
-    }
 }
 
 // /**
