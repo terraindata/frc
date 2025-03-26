@@ -167,11 +167,10 @@ static inline int xrc_impl_decrement_queue_pop(
         return -1; // empty
 
     uint_fast64_t epoch = target->decrement_epochs[tail];
-    if (*oldest_decrement_epoch >= oldest_complete_scan_epoch)
+    if (epoch >= oldest_complete_scan_epoch)
     {
-        // ineligible
         *oldest_decrement_epoch = epoch;
-        return 1;
+        return 1; // ineligible
     }
 
     *element = target->decrement_targets[tail];

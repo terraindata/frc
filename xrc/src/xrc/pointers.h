@@ -143,11 +143,7 @@ static inline void xrc_impl_lptr_preinit(
     xrc_lptr* target
     )
 {
-    xrc_impl_hazard* hazard = target->hazard;
-    if (hazard->thread_local_reference_count == 0)
-        return;
-
-    hazard->thread_local_reference_count--;
+    xrc_impl_hazard_release(target->hazard);
     target->hazard = xrc_impl_hazard_set_allocate_hazard();
 }
 
@@ -172,23 +168,25 @@ static inline void xrc_lptr_assign(
     xrc_lptr* source
     )
 {
-    xrc_impl_lptr_preinit(target);
+    xrc_impl_hazard_release(target->hazard);
     xrc_lptr_initialize_as_copy_of(target, source);
 }
 
 /**
  * Assigns a local pointer to point to the memory protected by a shared pointer.
  */
-static inline void xrc_lptr_assign_from_sptr(
+static inline void* xrc_lptr_assign_from_sptr(
     xrc_lptr* target,
     xrc_sptr* source
     )
 {
     xrc_impl_lptr_preinit(target);
-    target->pointer = xrc_impl_hazard_publish_from(
+    void* result = xrc_impl_hazard_publish_from(
         target->hazard,
         &source->pointer
         );
+    target->pointer = result;
+    return result;
 }
 
 /**

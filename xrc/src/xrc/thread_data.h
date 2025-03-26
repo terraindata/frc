@@ -370,7 +370,7 @@ static inline void xrc_impl_buffer_decrement(
     void* pointer
     )
 {
-    if (pointer != NULL)
+    if (pointer == NULL)
         return;
 
     xrc_impl_thread_data* this_thread_data = xrc_impl_thread_local_thread_data;

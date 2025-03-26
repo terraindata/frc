@@ -4,7 +4,7 @@
 #include <xrc/thread_data.h>   // for xrc_sptr_* etc.
 #include <xrc/pointers.h>      // xrc_lptr, xrc_sptr etc.
 
-typedef int xrc_bst_value;
+typedef uint64_t xrc_bst_value;
 
 static void xrc_bst_swap_min(
     xrc_bst_value* replacement_key,
@@ -43,10 +43,7 @@ static xrc_bst_node* xrc_bst_node_initialize(
         0
         );
 
-    xrc_bst_node* node = (xrc_bst_node*)atomic_load_explicit(
-        (atomic_intptr_t*)&node,
-        memory_order_relaxed
-        );
+    xrc_bst_node* node = (xrc_bst_node*)xrc_sptr_get(target);
     pthread_mutex_init(&node->lock, NULL);
     node->current = true;
     node->key     = key;
@@ -89,8 +86,8 @@ void xrc_bst_dispose(
     if (pnode)
     {
         // set left= null, right= null
-        xrc_sptr_assign(&pnode->left, NULL);
-        xrc_sptr_assign(&pnode->right, NULL);
+        xrc_sptr_clear(&pnode->left);
+        xrc_sptr_clear(&pnode->right);
     }
     // dispose root_parent
     xrc_sptr_dispose(&bst->root_parent);
@@ -121,17 +118,15 @@ bool xrc_bst_insert(
 
 retry:
 
-    xrc_lptr_assign_from_sptr(&parent, &bst->root_parent);
-    xrc_bst_node*    parent_node       = (xrc_bst_node*)xrc_lptr_get(&parent);
+    xrc_bst_node* parent_node = (xrc_bst_node*)xrc_lptr_assign_from_sptr(&parent, &bst->root_parent);
     xrc_sptr*        current_reference = &parent_node->left;
     pthread_mutex_t* parent_lock;
 
     for (;;)
     {
-        parent_node = (xrc_bst_node*)xrc_lptr_get(&parent);
-        parent_lock = &parent_node->lock;
-        xrc_lptr_assign_from_sptr(&current_ptr, current_reference);
-        xrc_bst_node* current_node = (xrc_bst_node*)xrc_lptr_get(&current_ptr);
+        parent_node                = (xrc_bst_node*)xrc_lptr_get(&parent);
+        parent_lock                = &parent_node->lock;
+        xrc_bst_node* current_node = (xrc_bst_node*)xrc_lptr_assign_from_sptr(&current_ptr, current_reference);
 
         if (current_node == NULL)
         {

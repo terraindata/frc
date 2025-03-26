@@ -3,6 +3,8 @@
 //
 #include "hazard_set.h"
 
+#include <stdio.h>
+
 void xrc_impl_hazard_set_initialize(
     xrc_impl_hazard_set* hazard_set
     )
@@ -22,6 +24,8 @@ void xrc_impl_hazard_set_initialize(
 
     xrc_impl_thread_local_hazard_set_head =
         &hazard_set->free_hazards[XRC_PER_THREAD_HAZARD_SET_LENGTH - 1];
+
+    // printf("Hazard set initialized. %p %p\n", hazard_set, xrc_impl_thread_local_hazard_set_head);
 
     atomic_thread_fence(memory_order_release);
 }

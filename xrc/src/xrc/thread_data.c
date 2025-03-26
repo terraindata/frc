@@ -56,9 +56,9 @@ uint_fast64_t xrc_impl_advance_epoch()
                );
 }
 
-uint_fast64_t xrc_impl_get_last_complete_scan_epoch()
+xrc_impl_sequence xrc_impl_get_last_complete_scan_epoch()
 {
-    xrc_impl_reduce_tree_get_min(&xrc_impl_control_data.completed_scan_time_tree);
+    return xrc_impl_reduce_tree_get_min(&xrc_impl_control_data.completed_scan_time_tree);
 }
 
 int xrc_attach_thread()
@@ -330,11 +330,11 @@ void xrc_help_collect()
 
     // execute decrements
     this_threads_thread_data->is_collecting = 1;
-    size_t scan_tiebreaker                  = this_threads_thread_data->index ^ epoch;
+    size_t        scan_tiebreaker           = this_threads_thread_data->index ^ epoch;
+    uint_fast64_t oldest_scan_epoch         = xrc_impl_get_last_complete_scan_epoch();
+    size_t        scan_attempt              = 0;
     for (;;)
     {
-        uint_fast64_t oldest_scan_epoch = xrc_impl_get_last_complete_scan_epoch();
-
         for (size_t num_dequeues = XRC_MAX_DECREMENTS_EXECUTED_PER_COLLECTION; num_dequeues > 0; num_dequeues--)
         {
             // try to pop from decrement stack
@@ -366,22 +366,40 @@ void xrc_help_collect()
             // ineligible decrements are waiting on a scan
             // try to scan a thread's hazard pointers
             // possibly also steal a decrement from the scanned thread
-            for (size_t scan_attempt = 0; status_code > 0; scan_attempt++)
+            // for (size_t scan_attempt = 0; status_code > 0; scan_attempt++)
+            // {
+            ++scan_attempt;
+            if (scan_attempt > 4)
             {
-                printf("epoch: %lu\n", xrc_impl_get_epoch());
-                printf("scan time tree:\n");
-                xrc_impl_reduce_tree_pretty_print(&xrc_impl_control_data.scan_time_tree);
-                printf("completed scan time tree:\n");
-                xrc_impl_reduce_tree_pretty_print(&xrc_impl_control_data.completed_scan_time_tree);
-                status_code = xrc_impl_help_scan(
-                    scan_tiebreaker++,
-                    oldest_decrement_epoch,
-                    xrc_impl_decrement_queue_headroom(queue) >
-                    XRC_MIN_DECREMENT_QUEUE_HEADROOM_BEFORE_BLOCKING_SCAN
-                    && scan_attempt < XRC_MAX_ATTEMPTS_TO_HELP_SCAN_BEFORE_BLOCKING,
-                    scan_attempt == 0
+                printf(
+                    "epoch: %lu lcse: %lu, %lu, %p, scan attempt %lu, oldest_scan_epoch %lu oldest_decrement_epoch: %lu\n",
+                    xrc_impl_get_epoch(),
+                    xrc_impl_get_last_complete_scan_epoch(),
+                    atomic_load_explicit(
+                        &xrc_impl_control_data.completed_scan_time_tree.nodes[1].value,
+                        memory_order_acquire
+                        ),
+                    &xrc_impl_control_data.completed_scan_time_tree.nodes[1].value,
+                    scan_attempt,
+                    oldest_scan_epoch,
+                    oldest_decrement_epoch
                     );
+                // printf("scan time tree:\n");
+                // xrc_impl_reduce_tree_pretty_print(&xrc_impl_control_data.scan_time_tree);
+                // printf("completed scan time tree:\n");
+                // xrc_impl_reduce_tree_pretty_print(&xrc_impl_control_data.completed_scan_time_tree);
             }
+            status_code = xrc_impl_help_scan(
+                scan_tiebreaker++,
+                oldest_decrement_epoch,
+                xrc_impl_decrement_queue_headroom(queue) >
+                XRC_MIN_DECREMENT_QUEUE_HEADROOM_BEFORE_BLOCKING_SCAN
+                && scan_attempt < XRC_MAX_ATTEMPTS_TO_HELP_SCAN_BEFORE_BLOCKING,
+                scan_attempt == 0
+                );
+
+            oldest_scan_epoch = xrc_impl_get_last_complete_scan_epoch();
+            // }
 
             if (status_code == 0)
             {

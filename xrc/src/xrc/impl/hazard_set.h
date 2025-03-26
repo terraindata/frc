@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include <threads.h>
 #include <stdatomic.h>
+#include <stdio.h>
 
 #include <xrc/settings.h>
 
@@ -96,6 +97,13 @@ static inline void xrc_impl_hazard_release(
     xrc_impl_hazard* target
     )
 {
+    // printf(
+    //     "Releasing hazard %lu %p %p\n",
+    //     target->thread_local_reference_count,
+    //     xrc_impl_thread_local_hazard_set_head,
+    //     target
+    //     );
+
     if (target->thread_local_reference_count == 0)
     {
         atomic_store_explicit(
@@ -116,5 +124,10 @@ static inline void xrc_impl_hazard_release(
  */
 static inline xrc_impl_hazard* xrc_impl_hazard_set_allocate_hazard()
 {
-    return *(xrc_impl_thread_local_hazard_set_head--);
+    // printf("Allocating hazard %p %p\n", xrc_impl_thread_local_hazard_set_head, *xrc_impl_thread_local_hazard_set_head);
+    xrc_impl_hazard* hazard = *(xrc_impl_thread_local_hazard_set_head--);
+
+    // the local count is already 0 but this blind write helps the compiler elide operations on the count in some cases
+    hazard->thread_local_reference_count = 0;
+    return hazard;
 }
