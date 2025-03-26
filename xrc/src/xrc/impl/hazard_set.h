@@ -58,7 +58,7 @@ static inline void xrc_impl_hazard_publish(
     void*            source
     )
 {
-    atomic_store_explicit(&hazard->pointer, (intptr_t)source, memory_order_release);
+    atomic_store_explicit(&hazard->pointer, (intptr_t)source, memory_order_relaxed);
 }
 
 /**
@@ -86,6 +86,8 @@ static inline void* xrc_impl_hazard_publish_from(
 
     // unlock and store pointer to hazard!
     xrc_impl_hazard_publish(hazard, source_pointer);
+
+    hazard->thread_local_reference_count = 0;
 
     return source_pointer;
 }
