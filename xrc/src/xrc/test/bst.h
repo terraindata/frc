@@ -4,6 +4,8 @@
 #include <pthread.h>
 #include <xrc/pointers.h>
 
+typedef uint64_t xrc_bst_value;
+
 /**
  * BST node structure
  */
@@ -12,8 +14,8 @@ typedef struct xrc_bst_node
     pthread_mutex_t lock;
     bool            current;
 
-    long key;
-    long value;
+    long          key;
+    xrc_bst_value value;
 
     // children are xrc_sptr => pointing to more xrc_bst_node
     xrc_sptr left;
@@ -59,11 +61,50 @@ extern bool xrc_bst_remove(
  * Finds the node with the given key, sets *outValue = node->value if found.
  * Returns true if found, false otherwise.
  */
-extern bool xrc_bst_find(
-    xrc_bst*  bst,
-    uint64_t  key,
-    uint64_t* outValue
-    );
+static inline bool xrc_bst_find(
+    xrc_bst*       bst,
+    xrc_bst_value  key,
+    xrc_bst_value* outValue
+    )
+{
+    // local pointer
+    xrc_lptr curr;
+    xrc_lptr_initialize_from_sptr(&curr, &((xrc_bst_node*)xrc_sptr_get(&bst->root_parent))->left);
+
+    for (;;)
+    {
+        xrc_bst_node* current_node = (xrc_bst_node*)xrc_lptr_get(&curr);
+        if (current_node == NULL)
+        {
+            // printf("not found %lu\n", key);
+            xrc_lptr_dispose(&curr);
+            return false; // not found
+        }
+
+        // printf("current_key %lu\n", current_key);
+
+        xrc_sptr* next = (
+            (key < current_node->key) ? &current_node->left : &current_node->right
+        );
+
+        if (key == current_node->key)
+        {
+            // found
+            // printf("found %lu %lu\n", key, current_node->value);
+            *outValue = current_node->value;
+            xrc_lptr_dispose(&curr);
+            return true;
+        }
+
+        xrc_lptr_assign_from_sptr(&curr, next);
+    }
+}
+
+// extern bool xrc_bst_find(
+//     xrc_bst*  bst,
+//     uint64_t  key,
+//     uint64_t* outValue
+//     );
 
 /**
  * Dispose the entire BST by setting root_parent->left = null, root_parent->right = null,

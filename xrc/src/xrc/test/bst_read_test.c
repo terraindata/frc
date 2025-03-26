@@ -2,7 +2,10 @@
  * bst_read_test.c
  *
  * Demonstration of building a random BST using the xrc_bst interface
- * from "bst.h" and benchmarking concurrent reads with per-iteration timing.
+ * from "bst.h" and benchmarking concurrent reads with per-iteration timing,
+ * ensuring all threads wait on a custom barrier before the timed loop.
+ *
+ * This version uses C17 threads <threads.h> instead of pthreads.
  *
  * The BST interface (bst.h):
  *
@@ -11,7 +14,6 @@
  *   bool xrc_bst_remove(xrc_bst* bst, uint64_t key);
  *   bool xrc_bst_find(xrc_bst* bst, uint64_t key, uint64_t* outValue);
  *   void xrc_bst_dispose(xrc_bst* bst);
- *
  */
 
 #include <stdio.h>
@@ -19,7 +21,14 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <time.h>
-#include <pthread.h>
+
+// C11/C17 threads and synchronization
+#include <threads.h>
+
+// If xrc depends on pthreads, you may still need linking with -lpthread.
+// But we won't directly include <pthread.h> here; we're using C17 <threads.h>.
+
+#include <xrc/impl/bind_thread_to_core.h>
 
 #include "bst.h"
 
@@ -29,6 +38,80 @@
 #define NUM_NODES   ((uint64_t)100000)
 #define NUM_THREADS 64
 #define NUM_OPS     ((uint64_t)10000)
+
+// -------------------------------------------------------------------------
+// A simple barrier implementation in standard C (C11/C17).
+// -------------------------------------------------------------------------
+typedef struct
+{
+    mtx_t mtx;
+    cnd_t cv;
+    int   count;
+    int   thread_count; // total threads that must wait
+} barrier_t;
+
+/**
+ * Initialize barrier to wait for `thread_count` threads.
+ */
+static int barrier_init(
+    barrier_t* barrier,
+    int        thread_count
+    )
+{
+    barrier->count        = 0;
+    barrier->thread_count = thread_count;
+    if (mtx_init(&barrier->mtx, mtx_plain) != thrd_success)
+    {
+        return -1;
+    }
+    if (cnd_init(&barrier->cv) != thrd_success)
+    {
+        mtx_destroy(&barrier->mtx);
+        return -1;
+    }
+    return 0;
+}
+
+/**
+ * Wait at the barrier until all `thread_count` threads arrive.
+ */
+static int barrier_wait(
+    barrier_t* barrier
+    )
+{
+    mtx_lock(&barrier->mtx);
+
+    barrier->count++;
+    if (barrier->count >= barrier->thread_count)
+    {
+        // Reset count so barrier can be reused if desired
+        barrier->count = 0;
+        cnd_broadcast(&barrier->cv);
+    }
+    else
+    {
+        // Wait until the barrier is released
+        int my_count = barrier->count;
+        while (my_count == barrier->count)
+        {
+            cnd_wait(&barrier->cv, &barrier->mtx);
+        }
+    }
+
+    mtx_unlock(&barrier->mtx);
+    return 0;
+}
+
+/**
+ * Destroy the barrier object.
+ */
+static void barrier_destroy(
+    barrier_t* barrier
+    )
+{
+    cnd_destroy(&barrier->cv);
+    mtx_destroy(&barrier->mtx);
+}
 
 // -------------------------------------------------------------------------
 // Shuffle an array of uint64_t
@@ -73,8 +156,11 @@ static void build_random_bst(
     // Insert into BST
     for (uint64_t i = 0; i < numNodes; i++)
     {
-        // Insert key=i, value=i (example usage)
-        xrc_bst_insert(bst, keys[i], keys[i]);
+        xrc_bst_insert(bst, keys[i], i);
+        // //verify...
+        // uint64_t outValue;
+        // assert(xrc_bst_find(bst, keys[i], &outValue));
+        // assert(outValue == i);
     }
 
     free(keys);
@@ -86,16 +172,21 @@ static void build_random_bst(
 typedef struct
 {
     xrc_bst* bst;
+    uint32_t core;
     uint64_t numNodes;
     uint64_t ops;
-    // Per-iteration times in nanoseconds
+    // Per-thread total time (in nanoseconds) for all reads
     uint64_t time;
+    // Barrier pointer for synchronization
+    barrier_t* barrier;
+    barrier_t* end_barrier;
 } read_thread_data_t;
 
 // -------------------------------------------------------------------------
-// Thread function: each find operation is individually timed
+// Thread function: wait at barrier, then measure read performance
+// Must return an int for <threads.h> compliance
 // -------------------------------------------------------------------------
-static void* read_benchmark_thread(
+static int read_benchmark_thread(
     void* arg
     )
 {
@@ -104,24 +195,38 @@ static void* read_benchmark_thread(
     uint64_t            numNodes = data->numNodes;
     uint64_t            ops      = data->ops;
 
+    bind_thread_to_core(data->core);
     xrc_attach_thread();
 
-    // Pick a random key
-    uint64_t* keys = malloc(sizeof(uint64_t) * ops);
-    for (uint64_t i = 0; i < ops; i++)
-        keys[i]     = (uint64_t)(rand() % numNodes);
+    // Pre-generate random keys
+    uint64_t* keys = (uint64_t*)malloc(sizeof(uint64_t) * ops);
+    if (!keys)
+    {
+        fprintf(stderr, "Thread malloc failed for keys array.\n");
+        xrc_detach_thread();
+        return thrd_success;
+    }
 
+    for (uint64_t i = 0; i < ops; i++)
+    {
+        keys[i] = (uint64_t)(rand() % numNodes);
+    }
     struct timespec start, end;
+
+    // Wait for all threads to be ready
+    barrier_wait(data->barrier);
+
+    // Timed loop
     timespec_get(&start, TIME_UTC);
     for (uint64_t i = 0; i < ops; i++)
     {
-        // Attempt to find
         uint64_t outValue = 0;
         (void)xrc_bst_find(bst, keys[i], &outValue);
+        // printf("Thread %p: key %lu, value %lu\n", data, keys[i], outValue);
     }
-
     timespec_get(&end, TIME_UTC);
 
+    barrier_wait(data->end_barrier);
 
     // Compute elapsed in nanoseconds
     uint64_t duration = ((uint64_t)(end.tv_sec) - (uint64_t)(start.tv_sec)) * 1000000000ULL
@@ -130,9 +235,8 @@ static void* read_benchmark_thread(
     data->time = duration;
 
     free(keys);
-
     xrc_detach_thread();
-    return NULL;
+    return thrd_success;
 }
 
 // -------------------------------------------------------------------------
@@ -142,6 +246,7 @@ int main(
     void
     )
 {
+    // xrc global init
     xrc_initialize();
     xrc_attach_thread();
 
@@ -154,57 +259,73 @@ int main(
     // 2. Build BST with random keys
     build_random_bst(&bst, NUM_NODES);
 
-    // 3. Prepare thread data
-    pthread_t          threads[NUM_THREADS];
-    read_thread_data_t tdata[NUM_THREADS];
-
-    // Decide how many ops each thread performs.
-    // If you want total ops to be NUM_OPS, do opsPerThread = NUM_OPS / NUM_THREADS, etc.
-    // This example: each thread does NUM_OPS => total ops = NUM_THREADS * NUM_OPS
-    uint64_t opsPerThread = NUM_OPS;
-
-    // Allocate time arrays
-    for (int i = 0; i < NUM_THREADS; i++)
+    for (size_t rep = 0; rep < 100; ++rep)
     {
-        tdata[i].bst      = &bst;
-        tdata[i].numNodes = NUM_NODES;
-        tdata[i].ops      = opsPerThread;
-        tdata[i].time     = 0;
-    }
+        // 3. Prepare data for each thread
+        thrd_t             threads[NUM_THREADS];
+        read_thread_data_t tdata[NUM_THREADS];
 
-    // 4. Spawn threads
-    for (int i = 0; i < NUM_THREADS; i++)
-    {
-        pthread_create(&threads[i], NULL, read_benchmark_thread, &tdata[i]);
-    }
+        uint64_t opsPerThread = NUM_OPS;
 
-    // 5. Join threads
-    for (int i = 0; i < NUM_THREADS; i++)
-    {
-        pthread_join(threads[i], NULL);
-    }
-
-    // 6. (Optional) Summarize or analyze results
-    {
-        uint64_t total_time_ns = 0;
-        uint64_t total_ops     = (uint64_t)NUM_THREADS * opsPerThread;
-
-        for (int i = 0; i < NUM_THREADS; i++)
+        // 4. Create our barrier to synchronize all NUM_THREADS
+        barrier_t barrier, end_barrier;
+        if (barrier_init(&barrier, NUM_THREADS) != 0 || barrier_init(&end_barrier, NUM_THREADS) != 0)
         {
-            total_time_ns += tdata[i].time;
+            fprintf(stderr, "Error: barrier_init failed.\n");
+            return EXIT_FAILURE;
         }
 
-        double avg_ns = (double)total_time_ns / (double)total_ops;
-        printf("Average lookup time: %.3f ns\n", avg_ns);
+        size_t num_cores = get_logical_cores();
+        for (int i = 0; i < NUM_THREADS; i++)
+        {
+            tdata[i].bst         = &bst;
+            tdata[i].core        = i % num_cores;
+            tdata[i].numNodes    = NUM_NODES;
+            tdata[i].ops         = opsPerThread;
+            tdata[i].time        = 0;
+            tdata[i].barrier     = &barrier;
+            tdata[i].end_barrier = &end_barrier;
+        }
+
+        // 5. Spawn threads
+        for (int i = 0; i < NUM_THREADS; i++)
+        {
+            if (thrd_create(&threads[i], read_benchmark_thread, &tdata[i]) != thrd_success)
+            {
+                fprintf(stderr, "Error: thrd_create failed for thread %d.\n", i);
+                return EXIT_FAILURE;
+            }
+        }
+
+        // 6. Join threads
+        for (int i = 0; i < NUM_THREADS; i++)
+        {
+            thrd_join(threads[i], NULL);
+        }
+
+        barrier_destroy(&barrier);
+        barrier_destroy(&end_barrier);
+
+        // 8. Summarize results
+        {
+            uint64_t total_time_ns = 0;
+            uint64_t total_ops     = (uint64_t)NUM_THREADS * opsPerThread;
+
+            for (int i = 0; i < NUM_THREADS; i++)
+            {
+                total_time_ns += tdata[i].time;
+            }
+
+            double avg_ns = (double)total_time_ns / (double)total_ops;
+            printf("Average lookup time: %.3f ns\n", avg_ns);
+        }
     }
 
-    // 7. Clean up
-
-    // Dispose the entire BST
+    // 9. Clean up
     xrc_bst_dispose(&bst);
 
     xrc_detach_thread();
     xrc_terminate();
 
-    return 0;
+    return EXIT_SUCCESS;
 }

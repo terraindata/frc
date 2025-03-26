@@ -135,7 +135,7 @@ static void test(string struct_name, TestType testMode, bool useFRC = false,
                     pDataStruct->find(readSequence[i], v);
                 }
                 toc = std::chrono::high_resolution_clock::now();
-                threadTimes[t2] = std::chrono::duration_cast<std::chrono::duration<double, std::milli >>
+                threadTimes[t2] = std::chrono::duration_cast<std::chrono::duration<double, std::nano >>
                                   (toc - tic).count();
 
                 threadBarrier.wait();

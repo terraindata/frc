@@ -41,13 +41,13 @@ endforeach ()
 # Add the main library
 add_library(libxrc ${SOURCE_FILES})
 
-target_link_libraries(libxrc PRIVATE atomic c)
+target_link_libraries(libxrc PRIVATE atomic c pthread)
 
 # Add test executables
 foreach (TEST_FILE ${TEST_FILES})
     get_filename_component(TEST_NAME ${TEST_FILE} NAME_WE)
     add_executable(${TEST_NAME} ${TEST_FILE})
-    target_link_libraries(${TEST_NAME} libxrc)
+    target_link_libraries(${TEST_NAME} libxrc pthread)
     add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
 endforeach ()
 

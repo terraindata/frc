@@ -39,6 +39,7 @@ static inline void xrc_lptr_initialize(
 {
     target->hazard  = xrc_impl_hazard_set_allocate_hazard();
     target->pointer = NULL;
+    // atomic_store_explicit(&target->hazard->pointer, (intptr_t)NULL, memory_order_relaxed);
 }
 
 /**
@@ -49,6 +50,7 @@ static inline void* xrc_lptr_get(
     )
 {
     return target->pointer;
+    // return (void*)atomic_load_explicit(&target->hazard->pointer, memory_order_relaxed);
 }
 
 /**
@@ -101,7 +103,8 @@ static inline void xrc_lptr_initialize_as_copy_of(
     )
 {
     target->pointer = source->pointer;
-    target->hazard  = source->hazard;
+    // atomic_store_explicit(&target->hazard->pointer, atomic_load_explicit(&source->hazard->pointer, memory_order_relaxed), memory_order_relaxed);
+    target->hazard = source->hazard;
     target->hazard->thread_local_reference_count++;
 }
 
@@ -120,6 +123,10 @@ static inline void xrc_lptr_initialize_from_sptr(
         target->hazard,
         &source->pointer
         );
+    // xrc_impl_hazard_publish_from(
+    //     target->hazard,
+    //     &source->pointer
+    //     );
 }
 
 /**
@@ -143,7 +150,11 @@ static inline void xrc_impl_lptr_preinit(
     xrc_lptr* target
     )
 {
-    xrc_impl_hazard_release(target->hazard);
+    xrc_impl_hazard* hazard = target->hazard;
+    if (hazard->thread_local_reference_count == 0)
+        return;
+
+    xrc_impl_hazard_release(hazard);
     target->hazard = xrc_impl_hazard_set_allocate_hazard();
 }
 
@@ -156,6 +167,7 @@ static inline void xrc_lptr_clear(
     )
 {
     xrc_impl_lptr_preinit(target);
+    atomic_store_explicit(&target->hazard->pointer, (intptr_t)NULL, memory_order_relaxed);
     target->pointer = NULL;
 }
 
@@ -186,6 +198,7 @@ static inline void* xrc_lptr_assign_from_sptr(
         &source->pointer
         );
     target->pointer = result;
+    // atomic_store_explicit(&target->hazard->pointer, (intptr_t)result, memory_order_relaxed);
     return result;
 }
 
@@ -291,7 +304,7 @@ static inline void xrc_sptr_initialize_from_lptr(
     )
 {
     xrc_impl_increment_reference_count(source);
-    atomic_store_explicit(&target->pointer, (intptr_t)source->pointer, memory_order_release);
+    atomic_store_explicit(&target->pointer, (intptr_t)xrc_lptr_get(source), memory_order_release);
 }
 
 /**
@@ -373,7 +386,7 @@ static inline void xrc_sptr_assign_lptr(
     xrc_lptr* source
     )
 {
-    xrc_sptr_assign_vptr(target, source->pointer);
+    xrc_sptr_assign_vptr(target, xrc_lptr_get(source));
 }
 
 /**
@@ -462,7 +475,7 @@ static inline void xrc_sptr_assign_lptr_atomic_without_increment(
     xrc_lptr* source
     )
 {
-    xrc_sptr_assign_vptr_atomic_without_increment(target, source->pointer);
+    xrc_sptr_assign_vptr_atomic_without_increment(target, xrc_lptr_get(source));
 }
 
 /**
