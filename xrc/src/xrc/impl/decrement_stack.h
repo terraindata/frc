@@ -22,15 +22,13 @@ typedef struct xrc_impl_decrement_stack
 {
     // Thieves do a CAS-based steal from the tail.
     // The owner never increments or decrements tail_index in this design.
-    atomic_uint_fast64_t tail_index;
-
-    xrc_impl_cache_line_padding pad_0;
+    _Alignas(64) atomic_uint_fast64_t tail_index;
 
     // Owner manipulates `head_index` for push/pop at the head.
-    atomic_uint_fast64_t head_index;
+    _Alignas(64) atomic_uint_fast64_t head_index;
 
     // The ring buffer storing `void*` elements
-    void* buffer[XRC_PER_THREAD_DECREMENT_STACK_LENGTH];
+    _Alignas(64) void* buffer[XRC_PER_THREAD_DECREMENT_STACK_LENGTH];
 } xrc_impl_decrement_stack;
 
 

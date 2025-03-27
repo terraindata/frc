@@ -16,6 +16,8 @@
 
 #include <xrc/impl/slim_mutex.h>
 
+#include <xrc/impl/static_reduce_tree.h>
+
 #define XRC_ALLOCATION_HEADER_ALIGNMENT (alignof(xrc_impl_allocation_header) > alignof(size_t) ? alignof(xrc_impl_allocation_header) : alignof(size_t))
 #define XRC_EXTENDED_SIZE_HEADER_SIZE ((sizeof(size_t) + sizeof(xrc_impl_allocation_header) + (XRC_ALLOCATION_HEADER_ALIGNMENT - 1)) & ~(XRC_ALLOCATION_HEADER_ALIGNMENT - 1))
 #define XRC_EXTENDED_SIZE_OFFSET (XRC_EXTENDED_SIZE_HEADER_SIZE - sizeof(xrc_impl_allocation_header))
@@ -41,16 +43,14 @@
  */
 typedef struct xrc_impl_thread_data
 {
-    xrc_impl_stack_node      stack_node; // intrusive atomic stack node used for free list
-    xrc_impl_hazard_set      hazard_set; // thread-local hazard pointer set
-    bool                     is_collecting; // true if this thread is currently collecting
-    xrc_impl_decrement_queue decrement_queue; // work queue of recursively generated decrements
-    xrc_impl_decrement_stack decrement_stack; // stack of non-recursive decrements
+    xrc_impl_stack_node                   stack_node; // intrusive atomic stack node used for free list
+    bool                                  is_collecting; // true if this thread is currently collecting
+    _Alignas(64) xrc_impl_decrement_queue decrement_queue; // work queue of recursively generated decrements
+    _Alignas(64) xrc_impl_decrement_stack decrement_stack; // stack of non-recursive decrements
 
-    xrc_impl_cache_line_padding pad_1; // padding to avoid false sharing
-    size_t                      index; // thread index in thread_data_array
-    xrc_impl_slim_mutex         scan_mutex; // held when scanning the thread data
-    xrc_impl_cache_line_padding pad_0; // padding to avoid false sharing
+    size_t              index; // thread index in thread_data_array
+    xrc_impl_slim_mutex scan_mutex; // held when scanning the thread data
+    xrc_impl_hazard_set hazard_set; // thread-local hazard pointer set
 } xrc_impl_thread_data;
 
 /**
@@ -59,27 +59,29 @@ typedef struct xrc_impl_thread_data
 typedef struct xrc_impl_control_data_s
 {
     // global collection epoch "time"
-    xrc_impl_sequence_atomic epoch;
+    _Alignas(128) xrc_impl_sequence_atomic epoch;
 
-    xrc_impl_cache_line_padding pad_0; // padding to avoid false sharing
-
-    // tree of scan start epochs for each thread data
-    xrc_impl_reduce_tree scan_time_tree;
+    // xrc_impl_cache_line_padding pad_0; // padding to avoid false sharing
 
     // tree of scan start epochs of the most recently completed scan of each thread data
-    xrc_impl_reduce_tree completed_scan_time_tree;
+    xrc_impl_static_reduce_tree completed_scan_time_tree;
+    // xrc_impl_reduce_tree completed_scan_time_tree;
 
-    // fixed-size pool of thread data structures
-    xrc_impl_thread_data thread_data_array[XRC_MAX_THREADS];
+    // tree of scan start epochs for each thread data
+    xrc_impl_static_reduce_tree scan_time_tree;
+    // xrc_impl_reduce_tree scan_time_tree;
 
     // free list of thread data structures
     xrc_impl_atomic_stack free_thread_data;
+
+    // fixed-size pool of thread data structures
+    xrc_impl_thread_data thread_data_array[XRC_MAX_THREADS];
 } xrc_impl_control_data_s;
 
 /**
  * Global control data for the xrc system.
  */
-extern xrc_impl_control_data_s xrc_impl_control_data;
+extern _Alignas(128) xrc_impl_control_data_s xrc_impl_control_data;
 
 /**
  * Allocation header memory layout (sizes and alignment for x64):

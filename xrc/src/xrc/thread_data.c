@@ -13,14 +13,16 @@ thread_local xrc_impl_sequence_atomic* xrc_impl_thread_local_hazard_set_release_
 thread_local size_t                    xrc_impl_thread_local_quiesce_count;
 thread_local xrc_impl_thread_data*     xrc_impl_thread_local_thread_data;
 
-xrc_impl_control_data_s xrc_impl_control_data;
+_Alignas(128) xrc_impl_control_data_s xrc_impl_control_data;
 
 
 void xrc_initialize()
 {
     atomic_store_explicit(&xrc_impl_control_data.epoch, XRC_EPOCH_INCREMENT, memory_order_release);
-    xrc_impl_reduce_tree_init(&xrc_impl_control_data.scan_time_tree, XRC_REDUCE_TREE_POWER, UINT64_MAX);
-    xrc_impl_reduce_tree_init(&xrc_impl_control_data.completed_scan_time_tree, XRC_REDUCE_TREE_POWER, UINT64_MAX);
+    // xrc_impl_reduce_tree_init(&xrc_impl_control_data.scan_time_tree, XRC_REDUCE_TREE_POWER, UINT64_MAX);
+    // xrc_impl_reduce_tree_init(&xrc_impl_control_data.completed_scan_time_tree, XRC_REDUCE_TREE_POWER, UINT64_MAX);
+    xrc_impl_static_reduce_tree_init(&xrc_impl_control_data.scan_time_tree, UINT64_MAX);
+    xrc_impl_static_reduce_tree_init(&xrc_impl_control_data.completed_scan_time_tree, UINT64_MAX);
 
     for (size_t i = 0; i < XRC_MAX_THREADS; i++)
     {
@@ -40,8 +42,12 @@ void xrc_terminate()
     // {
     //     xrc_impl_thread_data* thread_data = &xrc_impl_control_data.thread_data_array[i];
     // }
-    xrc_impl_reduce_tree_destroy(&xrc_impl_control_data.scan_time_tree);
-    xrc_impl_reduce_tree_destroy(&xrc_impl_control_data.completed_scan_time_tree);
+
+    // xrc_impl_reduce_tree_destroy(&xrc_impl_control_data.scan_time_tree);
+    // xrc_impl_reduce_tree_destroy(&xrc_impl_control_data.completed_scan_time_tree);
+
+    xrc_impl_static_reduce_tree_destroy(&xrc_impl_control_data.scan_time_tree);
+    xrc_impl_static_reduce_tree_destroy(&xrc_impl_control_data.completed_scan_time_tree);
 }
 
 // uint_fast64_t xrc_impl_get_epoch()
@@ -60,7 +66,8 @@ uint_fast64_t xrc_impl_advance_epoch()
 
 xrc_impl_sequence xrc_impl_get_last_complete_scan_epoch()
 {
-    return xrc_impl_reduce_tree_get_min(&xrc_impl_control_data.completed_scan_time_tree);
+    // return xrc_impl_reduce_tree_get_min(&xrc_impl_control_data.completed_scan_time_tree);
+    return xrc_impl_static_reduce_tree_get_min(&xrc_impl_control_data.completed_scan_time_tree);
 }
 
 int xrc_attach_thread()
@@ -80,16 +87,26 @@ int xrc_attach_thread()
     xrc_impl_decrement_queue_initialize(&thread_data->decrement_queue);
     xrc_impl_decrement_stack_initialize(&thread_data->decrement_stack);
 
-    xrc_impl_reduce_tree_set_leaf_value(
+    xrc_impl_static_reduce_tree_set_leaf_value(
         &xrc_impl_control_data.completed_scan_time_tree,
         thread_data->index,
         epoch
         );
-    xrc_impl_reduce_tree_set_leaf_value(
+    xrc_impl_static_reduce_tree_set_leaf_value(
         &xrc_impl_control_data.scan_time_tree,
         thread_data->index,
         epoch | (XRC_EPOCH_INCREMENT - 1) // unlocked state
         );
+    // xrc_impl_reduce_tree_set_leaf_value(
+    //     &xrc_impl_control_data.completed_scan_time_tree,
+    //     thread_data->index,
+    //     epoch
+    //     );
+    // xrc_impl_reduce_tree_set_leaf_value(
+    //     &xrc_impl_control_data.scan_time_tree,
+    //     thread_data->index,
+    //     epoch | (XRC_EPOCH_INCREMENT - 1) // unlocked state
+    //     );
 
     xrc_impl_thread_local_thread_data = thread_data;
     return 0; // success
@@ -101,8 +118,14 @@ void xrc_detach_thread()
     xrc_impl_thread_data* target = xrc_impl_thread_local_thread_data;
     xrc_impl_hazard_set_clear(&target->hazard_set);
     // atomic_store_explicit(&target->is_alive, 0, memory_order_release);
-    xrc_impl_reduce_tree_set_leaf_value(&xrc_impl_control_data.completed_scan_time_tree, target->index, UINT64_MAX);
-    xrc_impl_reduce_tree_set_leaf_value(&xrc_impl_control_data.scan_time_tree, target->index, UINT64_MAX);
+    xrc_impl_static_reduce_tree_set_leaf_value(
+        &xrc_impl_control_data.completed_scan_time_tree,
+        target->index,
+        UINT64_MAX
+        );
+    xrc_impl_static_reduce_tree_set_leaf_value(&xrc_impl_control_data.scan_time_tree, target->index, UINT64_MAX);
+    // xrc_impl_reduce_tree_set_leaf_value(&xrc_impl_control_data.completed_scan_time_tree, target->index, UINT64_MAX);
+    // xrc_impl_reduce_tree_set_leaf_value(&xrc_impl_control_data.scan_time_tree, target->index, UINT64_MAX);
 
     // process remaining decrements
     xrc_impl_advance_epoch(); // prevents scan of this thread from blocking further decrement processing
@@ -215,7 +238,7 @@ static int xrc_impl_help_scan(
     xrc_impl_thread_data* target = NULL;
 
     // first check if it makes sense to scan this thread's hazard pointers
-    if (try_local_if_eligible && xrc_impl_reduce_tree_get_leaf_value(
+    if (try_local_if_eligible && xrc_impl_static_reduce_tree_get_leaf_value(
             &xrc_impl_control_data.scan_time_tree,
             xrc_impl_thread_local_thread_data->index,
             memory_order_relaxed // it's ok if we sometimes miss here, so let it be relaxed
@@ -225,7 +248,7 @@ static int xrc_impl_help_scan(
     }
     else
     {
-        int index = xrc_impl_reduce_tree_get_index_less_than_or_equal_to_value(
+        int index = xrc_impl_static_reduce_tree_get_index_less_than_or_equal_to_value(
             &xrc_impl_control_data.scan_time_tree,
             tiebreaker,
             oldest_decrement_epoch | (XRC_EPOCH_INCREMENT - 1)
@@ -259,7 +282,7 @@ static int xrc_impl_help_scan(
     }
 
     xrc_impl_sequence start_epoch     = xrc_impl_get_epoch();
-    xrc_impl_sequence last_scan_epoch = xrc_impl_reduce_tree_get_leaf_value(
+    xrc_impl_sequence last_scan_epoch = xrc_impl_static_reduce_tree_get_leaf_value(
                                             &xrc_impl_control_data.completed_scan_time_tree,
                                             target->index,
                                             memory_order_relaxed
@@ -274,7 +297,7 @@ static int xrc_impl_help_scan(
 
     if (try_lock)
     {
-        if (xrc_impl_reduce_tree_update_min_try_lock(
+        if (xrc_impl_static_reduce_tree_update_min_try_lock(
                 &xrc_impl_control_data.scan_time_tree,
                 target->index,
                 start_epoch
@@ -283,7 +306,7 @@ static int xrc_impl_help_scan(
     }
     else
     {
-        if (xrc_impl_reduce_tree_update_min_lock(
+        if (xrc_impl_static_reduce_tree_update_min_lock(
                 &xrc_impl_control_data.scan_time_tree,
                 target->index,
                 start_epoch
@@ -316,14 +339,14 @@ static int xrc_impl_help_scan(
     printf("Scanned thread %zu with epoch %lu\n", target->index, release_epoch);
 
     // now update the min completed scan time
-    xrc_impl_reduce_tree_set_leaf_value(
+    xrc_impl_static_reduce_tree_set_leaf_value(
         &xrc_impl_control_data.completed_scan_time_tree,
         target->index,
         release_epoch
         );
 
     // unlock the thread data
-    xrc_impl_reduce_tree_update_min_unlock(
+    xrc_impl_static_reduce_tree_update_min_unlock(
         &xrc_impl_control_data.scan_time_tree,
         target->index,
         release_epoch

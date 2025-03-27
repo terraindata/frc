@@ -113,21 +113,21 @@ static inline void xrc_lptr_initialize_as_copy_of(
  * Be sure to call xrc_lptr_dispose when the local pointer is no longer needed
  * or a leak can occur.
  */
-static inline void xrc_lptr_initialize_from_sptr(
-    xrc_lptr* target,
-    xrc_sptr* source
-    )
-{
-    target->hazard  = xrc_impl_hazard_set_allocate_hazard();
-    target->pointer = xrc_impl_hazard_publish_from(
-        target->hazard,
-        &source->pointer
-        );
-    // xrc_impl_hazard_publish_from(
-    //     target->hazard,
-    //     &source->pointer
-    //     );
-}
+// inline void xrc_lptr_initialize_from_sptr(
+//     xrc_lptr* target,
+//     xrc_sptr* source
+//     )
+// {
+//     target->hazard  = xrc_impl_hazard_set_allocate_hazard();
+//     target->pointer = xrc_impl_hazard_publish_from(
+//         target->hazard,
+//         &source->pointer
+//         );
+//     // xrc_impl_hazard_publish_from(
+//     //     target->hazard,
+//     //     &source->pointer
+//     //     );
+// }
 
 inline xrc_lptr xrc_lptr_initialize_from_sptr_by_value(
     xrc_sptr* source
@@ -236,25 +236,17 @@ inline xrc_lptr xrc_lptr_assign_from_sptr_by_value(
     xrc_sptr* source
     )
 {
-    xrc_lptr result;
-
-    xrc_impl_hazard* hazard = target.hazard;
-    if (hazard->thread_local_reference_count != 0)
+    if (target.hazard->thread_local_reference_count != 0)
     {
-        hazard->thread_local_reference_count--;
-        result.hazard = xrc_impl_hazard_set_allocate_hazard();
-    }
-    else
-    {
-        result.hazard = hazard;
+        target.hazard->thread_local_reference_count--;
+        target.hazard = xrc_impl_hazard_set_allocate_hazard();
     }
 
-    result.pointer = xrc_impl_hazard_publish_from(
-        result.hazard,
+    target.pointer = xrc_impl_hazard_publish_from(
+        target.hazard,
         &source->pointer
         );
-
-    return result;
+    return target;
 }
 
 /**
