@@ -8,10 +8,11 @@
 #include <xrc/thread_data.h>
 
 
-thread_local xrc_impl_hazard*          xrc_impl_thread_local_hazard_set_head;
-thread_local xrc_impl_sequence_atomic* xrc_impl_thread_local_hazard_set_release_epoch;
-thread_local size_t                    xrc_impl_thread_local_quiesce_count;
-thread_local xrc_impl_thread_data*     xrc_impl_thread_local_thread_data;
+// thread_local xrc_impl_hazard*          xrc_impl_thread_local_hazard_set_head;
+// thread_local xrc_impl_sequence_atomic* xrc_impl_thread_local_hazard_set_release_epoch;
+// thread_local size_t                    xrc_impl_thread_local_quiesce_count;
+thread_local xrc_impl_thread_local_hazard_control_s xrc_impl_thread_local_hazard_control;
+thread_local xrc_impl_thread_data*                  xrc_impl_thread_local_thread_data;
 
 _Alignas(128) xrc_impl_control_data_s xrc_impl_control_data;
 

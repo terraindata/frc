@@ -11,10 +11,10 @@ void xrc_impl_hazard_set_initialize(
     xrc_impl_hazard_set* hazard_set
     )
 {
-    xrc_impl_thread_local_hazard_set_head           = NULL;
-    xrc_impl_thread_local_hazard_set_release_epoch  = &hazard_set->release_epoch;
-    *xrc_impl_thread_local_hazard_set_release_epoch = xrc_impl_get_epoch();
-    xrc_impl_thread_local_quiesce_count             = 0;
+    xrc_impl_thread_local_hazard_control.xrc_impl_thread_local_hazard_set_head           = NULL;
+    xrc_impl_thread_local_hazard_control.xrc_impl_thread_local_hazard_set_release_epoch  = &hazard_set->release_epoch;
+    *xrc_impl_thread_local_hazard_control.xrc_impl_thread_local_hazard_set_release_epoch = xrc_impl_get_epoch();
+    xrc_impl_thread_local_hazard_control.xrc_impl_thread_local_quiesce_count             = 0;
 
     for (int i = XRC_PER_THREAD_HAZARD_SET_LENGTH; i > 0;)
     {
@@ -33,7 +33,7 @@ void xrc_impl_hazard_set_clear(
     xrc_impl_hazard_set* hazard_set
     )
 {
-    xrc_impl_thread_local_hazard_set_head = NULL;
+    xrc_impl_thread_local_hazard_control.xrc_impl_thread_local_hazard_set_head = NULL;
     for (int i = 0; i < XRC_PER_THREAD_HAZARD_SET_LENGTH; i++)
     {
         xrc_impl_hazard* hazard = &hazard_set->hazards[i];

@@ -142,11 +142,11 @@ typedef struct xrc_impl_extended_header
 } xrc_impl_extended_header;
 
 
-/**
- * Thread-local hazard set freelist head.
- * Used to allocate and deallocate hazard pointers.
- */
-extern thread_local xrc_impl_hazard* xrc_impl_thread_local_hazard_set_head;
+// /**
+//  * Thread-local hazard set freelist head.
+//  * Used to allocate and deallocate hazard pointers.
+//  */
+// extern thread_local xrc_impl_hazard* xrc_impl_thread_local_hazard_set_head;
 
 /**
  * Thread-local pointer to this thread's thread data.
@@ -190,15 +190,15 @@ extern void xrc_help_collect();
 /**
  * Internal function. Gets the current epoch.
  */
-static inline uint_fast64_t xrc_impl_get_epoch()
+inline uint_fast64_t xrc_impl_get_epoch()
 {
     return atomic_load_explicit(&xrc_impl_control_data.epoch, memory_order_acquire);
 }
 
-inline uint_fast64_t xrc_impl_get_epoch_relaxed()
-{
-    return atomic_load_explicit(&xrc_impl_control_data.epoch, memory_order_relaxed);
-}
+// inline uint_fast64_t xrc_impl_get_epoch_relaxed()
+// {
+//     return atomic_load_explicit(&xrc_impl_control_data.epoch, memory_order_acquire);
+// }
 
 /**
  * Internal function. Advances the epoch.
