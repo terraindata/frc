@@ -118,9 +118,7 @@ static inline xrc_impl_hazard* xrc_impl_hazard_set_release_allocate(
 
 inline uint_fast64_t xrc_impl_get_epoch();
 
-#define XRC_HAZARD_SET_QUISCENCE_THRESHOLD 32
-
-inline void xrc_impl_hazard_quiesce_tick(
+inline void xrc_impl_hazard_quiesce(
     )
 {
     if (xrc_impl_thread_local_hazard_control.xrc_impl_thread_local_quiesce_count == 0)
@@ -130,7 +128,7 @@ inline void xrc_impl_hazard_quiesce_tick(
             xrc_impl_get_epoch(),
             memory_order_release
             );
-        xrc_impl_thread_local_hazard_control.xrc_impl_thread_local_quiesce_count = XRC_HAZARD_SET_QUISCENCE_THRESHOLD;
+        xrc_impl_thread_local_hazard_control.xrc_impl_thread_local_quiesce_count = XRC_HAZARD_SET_QUIESCENCE_THRESHOLD;
     }
     else
         xrc_impl_thread_local_hazard_control.xrc_impl_thread_local_quiesce_count--;
@@ -142,7 +140,7 @@ inline void xrc_impl_hazard_publish(
     )
 {
     hazard->pointer = source;
-    xrc_impl_hazard_quiesce_tick(hazard);
+    xrc_impl_hazard_quiesce(hazard);
 }
 
 

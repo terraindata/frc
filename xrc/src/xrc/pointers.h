@@ -252,7 +252,7 @@ inline xrc_lptr xrc_lptr_assign_from_sptr_by_value(
 /**
  * Returns the value of a shared pointer using a relaxed memory order.
  */
-static inline void* xrc_sptr_get(
+inline void* xrc_sptr_get(
     xrc_sptr* target
     )
 {
