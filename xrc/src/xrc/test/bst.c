@@ -1,8 +1,8 @@
 #include "bst.h"
 #include <stdlib.h>
 #include <pthread.h>
-#include <xrc/thread_data.h>   // for xrc_sptr_* etc.
-#include <xrc/pointers.h>      // xrc_lptr, xrc_sptr etc.
+#include <xrc/thread_data.h>
+#include <xrc/pointers.h>
 
 
 static void xrc_bst_swap_min(

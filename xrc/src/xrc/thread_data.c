@@ -8,8 +8,10 @@
 #include <xrc/thread_data.h>
 
 
-thread_local xrc_impl_hazard**     xrc_impl_thread_local_hazard_set_head;
-thread_local xrc_impl_thread_data* xrc_impl_thread_local_thread_data;
+thread_local xrc_impl_hazard*          xrc_impl_thread_local_hazard_set_head;
+thread_local xrc_impl_sequence_atomic* xrc_impl_thread_local_hazard_set_release_epoch;
+thread_local size_t                    xrc_impl_thread_local_quiesce_count;
+thread_local xrc_impl_thread_data*     xrc_impl_thread_local_thread_data;
 
 xrc_impl_control_data_s xrc_impl_control_data;
 
@@ -42,10 +44,10 @@ void xrc_terminate()
     xrc_impl_reduce_tree_destroy(&xrc_impl_control_data.completed_scan_time_tree);
 }
 
-uint_fast64_t xrc_impl_get_epoch()
-{
-    return atomic_load_explicit(&xrc_impl_control_data.epoch, memory_order_acquire);
-}
+// uint_fast64_t xrc_impl_get_epoch()
+// {
+//     return atomic_load_explicit(&xrc_impl_control_data.epoch, memory_order_acquire);
+// }
 
 uint_fast64_t xrc_impl_advance_epoch()
 {
@@ -171,25 +173,34 @@ static void xrc_impl_thread_data_scan(
 
         // spin on lock signal...
         // TODO: better implementation of this lock using a futex after a bit of spinning
-        intptr_t pointer;
-        do
-        {
-            pointer = atomic_load_explicit(&hazard->pointer, memory_order_acquire);
-        }
-        while (pointer == XRC_LOCK_SIGNAL);
+        // intptr_t pointer;
+        // do
+        // {
+        //     pointer = atomic_load_explicit(&hazard->pointer, memory_order_acquire);
+        // }
+        // while (pointer == XRC_LOCK_SIGNAL);
+        intptr_t pointer = (intptr_t)hazard->pointer;
 
         intptr_t* previous_hazard_ptr = &hazard_set->previous_hazards[i];
         intptr_t  previous_hazard     = *previous_hazard_ptr;
         if (previous_hazard != pointer)
         {
-            *previous_hazard_ptr = pointer;
+            intptr_t top    = (intptr_t)&hazard_set[0];
+            intptr_t bottom = (intptr_t)&hazard_set[XRC_PER_THREAD_HAZARD_SET_LENGTH - 1];
+            if (pointer >= top && pointer <= bottom)
+                pointer = (intptr_t)NULL;
 
-            // immediately execute the old decrement
-            if (previous_hazard != (intptr_t)NULL)
-                xrc_impl_execute_decrement((void*)previous_hazard);
+            if (previous_hazard != pointer)
+            {
+                *previous_hazard_ptr = pointer;
 
-            // increment reference count of new hazard
-            xrc_impl_increment_reference_count((void*)pointer);
+                // increment reference count of new hazard
+                xrc_impl_increment_reference_count((void*)pointer);
+
+                // execute the old decrement
+                if (previous_hazard != (intptr_t)NULL)
+                    xrc_impl_execute_decrement((void*)previous_hazard);
+            }
         }
     }
 }
@@ -293,23 +304,29 @@ static int xrc_impl_help_scan(
     //         );
     // }
 
+    xrc_impl_sequence release_epoch = atomic_load_explicit(
+        &target->hazard_set.release_epoch,
+        memory_order_acquire
+        );
+    // start_epoch = (start_epoch < release_epoch) ? start_epoch : release_epoch;
+
     // scan the thread's hazard pointers
     xrc_impl_thread_data_scan(target);
 
-    printf("Scanned thread %zu with epoch %lu\n", target->index, start_epoch);
+    printf("Scanned thread %zu with epoch %lu\n", target->index, release_epoch);
 
     // now update the min completed scan time
     xrc_impl_reduce_tree_set_leaf_value(
         &xrc_impl_control_data.completed_scan_time_tree,
         target->index,
-        start_epoch
+        release_epoch
         );
 
     // unlock the thread data
     xrc_impl_reduce_tree_update_min_unlock(
         &xrc_impl_control_data.scan_time_tree,
         target->index,
-        start_epoch
+        release_epoch
         );
 
     return 0; // success

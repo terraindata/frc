@@ -41,16 +41,15 @@
  */
 typedef struct xrc_impl_thread_data
 {
-    xrc_impl_stack_node stack_node; // intrusive atomic stack node used for free list
-    size_t              index; // thread index in thread_data_array
-
+    xrc_impl_stack_node      stack_node; // intrusive atomic stack node used for free list
+    xrc_impl_hazard_set      hazard_set; // thread-local hazard pointer set
     bool                     is_collecting; // true if this thread is currently collecting
     xrc_impl_decrement_queue decrement_queue; // work queue of recursively generated decrements
-
-    xrc_impl_hazard_set      hazard_set; // thread-local hazard pointer set
-    xrc_impl_slim_mutex      scan_mutex; // held when scanning the thread data
     xrc_impl_decrement_stack decrement_stack; // stack of non-recursive decrements
 
+    xrc_impl_cache_line_padding pad_1; // padding to avoid false sharing
+    size_t                      index; // thread index in thread_data_array
+    xrc_impl_slim_mutex         scan_mutex; // held when scanning the thread data
     xrc_impl_cache_line_padding pad_0; // padding to avoid false sharing
 } xrc_impl_thread_data;
 
@@ -60,7 +59,7 @@ typedef struct xrc_impl_thread_data
 typedef struct xrc_impl_control_data_s
 {
     // global collection epoch "time"
-    atomic_uint_fast64_t epoch;
+    xrc_impl_sequence_atomic epoch;
 
     xrc_impl_cache_line_padding pad_0; // padding to avoid false sharing
 
@@ -145,12 +144,13 @@ typedef struct xrc_impl_extended_header
  * Thread-local hazard set freelist head.
  * Used to allocate and deallocate hazard pointers.
  */
-extern thread_local xrc_impl_hazard** xrc_impl_thread_local_hazard_set_head;
+extern thread_local xrc_impl_hazard* xrc_impl_thread_local_hazard_set_head;
 
 /**
  * Thread-local pointer to this thread's thread data.
  */
 extern thread_local xrc_impl_thread_data* xrc_impl_thread_local_thread_data;
+
 
 /**
  * Initializes the xrc system.
@@ -188,7 +188,15 @@ extern void xrc_help_collect();
 /**
  * Internal function. Gets the current epoch.
  */
-extern uint_fast64_t xrc_impl_get_epoch();
+static inline uint_fast64_t xrc_impl_get_epoch()
+{
+    return atomic_load_explicit(&xrc_impl_control_data.epoch, memory_order_acquire);
+}
+
+inline uint_fast64_t xrc_impl_get_epoch_relaxed()
+{
+    return atomic_load_explicit(&xrc_impl_control_data.epoch, memory_order_relaxed);
+}
 
 /**
  * Internal function. Advances the epoch.

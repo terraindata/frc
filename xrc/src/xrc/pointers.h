@@ -146,16 +146,20 @@ static inline void xrc_lptr_dispose(
  * Internal function to prepare a local pointer to be set to a new value.
  * Reuses the hazard if it is not shared, otherwise allocates a new hazard.
  */
-static inline void xrc_impl_lptr_preinit(
+inline void xrc_impl_lptr_preinit(
     xrc_lptr* target
     )
 {
     xrc_impl_hazard* hazard = target->hazard;
-    if (hazard->thread_local_reference_count == 0)
-        return;
+    // // if (hazard->thread_local_reference_count == 0)
+    // //     return;
+    //
 
-    xrc_impl_hazard_release(hazard);
-    target->hazard = xrc_impl_hazard_set_allocate_hazard();
+    if (hazard->thread_local_reference_count != 0)
+    {
+        hazard->thread_local_reference_count--;
+        target->hazard = xrc_impl_hazard_set_allocate_hazard();
+    }
 }
 
 /**
@@ -167,7 +171,7 @@ static inline void xrc_lptr_clear(
     )
 {
     xrc_impl_lptr_preinit(target);
-    atomic_store_explicit(&target->hazard->pointer, (intptr_t)NULL, memory_order_relaxed);
+    // atomic_store_explicit(&target->hazard->pointer, (intptr_t)NULL, memory_order_relaxed);
     target->pointer = NULL;
 }
 
@@ -187,7 +191,7 @@ static inline void xrc_lptr_assign(
 /**
  * Assigns a local pointer to point to the memory protected by a shared pointer.
  */
-static inline void* xrc_lptr_assign_from_sptr(
+inline void* xrc_lptr_assign_from_sptr(
     xrc_lptr* target,
     xrc_sptr* source
     )
@@ -283,12 +287,12 @@ static inline void xrc_sptr_initialize_with_copy_of(
     xrc_sptr* source
     )
 {
-    xrc_impl_hazard* hazard      = *xrc_impl_thread_local_hazard_set_head;
-    void*            acquisition = xrc_impl_hazard_publish_from(
-        hazard,
-        &source->pointer
-        );
-    atomic_store_explicit(&target->pointer, (intptr_t)acquisition, memory_order_release);
+    xrc_impl_hazard* hazard         = xrc_impl_hazard_set_allocate_hazard();
+    void*            source_pointer = xrc_impl_hazard_protect_load(hazard, &source->pointer);
+    atomic_store_explicit(&target->pointer, (intptr_t)source_pointer, memory_order_release);
+    xrc_impl_hazard_set_free_hazard(hazard);
+    // atomic_store_explicit(&hazard->pointer, (intptr_t)NULL, memory_order_relaxed);
+    // hazard->pointer = (void*)NULL;
 }
 
 /**

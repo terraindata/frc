@@ -11,15 +11,15 @@
 
 #include <xrc/settings.h>
 
-#define XRC_LOCK_SIGNAL ((intptr_t)1)
+// #define XRC_LOCK_SIGNAL ((intptr_t)1)
 
 /**
  * A xrc hazard pointer.
  */
 typedef struct xrc_impl_hazard
 {
-    atomic_intptr_t pointer;
-    size_t          thread_local_reference_count;
+    void*  pointer;
+    size_t thread_local_reference_count;
 } xrc_impl_hazard;
 
 
@@ -28,7 +28,8 @@ typedef struct xrc_impl_hazard
  */
 typedef struct xrc_impl_hazard_set
 {
-    xrc_impl_hazard*            free_hazards[XRC_PER_THREAD_HAZARD_SET_LENGTH];
+    // xrc_impl_hazard*            free_hazards[XRC_PER_THREAD_HAZARD_SET_LENGTH];
+    xrc_impl_sequence_atomic    release_epoch;
     xrc_impl_hazard             hazards[XRC_PER_THREAD_HAZARD_SET_LENGTH];
     xrc_impl_cache_line_padding pad_0; // cache line padding
     intptr_t                    previous_hazards[XRC_PER_THREAD_HAZARD_SET_LENGTH];
@@ -37,7 +38,9 @@ typedef struct xrc_impl_hazard_set
 /**
  * Thread-local head of the hazard pointer freelist.
  */
-extern thread_local xrc_impl_hazard** xrc_impl_thread_local_hazard_set_head;
+extern thread_local xrc_impl_hazard*          xrc_impl_thread_local_hazard_set_head;
+extern thread_local size_t                    xrc_impl_thread_local_quiesce_count;
+extern thread_local xrc_impl_sequence_atomic* xrc_impl_thread_local_hazard_set_release_epoch;
 
 /**
  * Initializes a hazard set.
@@ -53,12 +56,98 @@ extern void xrc_impl_hazard_set_clear(
     xrc_impl_hazard_set* hazard_set
     );
 
+static inline void xrc_impl_hazard_set_free_hazard(
+    xrc_impl_hazard* hazard
+    )
+{
+    hazard->pointer                       = xrc_impl_thread_local_hazard_set_head;
+    xrc_impl_thread_local_hazard_set_head = hazard;
+}
+
+/**
+ * Releases a hazard pointer.
+ */
+static inline void xrc_impl_hazard_release(
+    xrc_impl_hazard* target
+    )
+{
+    if (target->thread_local_reference_count == 0)
+    {
+        xrc_impl_hazard_set_free_hazard(target);
+    }
+    else
+    {
+        target->thread_local_reference_count--;
+    }
+    // target->thread_local_reference_count--;
+}
+
+/**
+ * Allocates a hazard pointer from the freelist.
+ */
+inline xrc_impl_hazard* xrc_impl_hazard_set_allocate_hazard()
+{
+    xrc_impl_hazard* hazard               = xrc_impl_thread_local_hazard_set_head;
+    xrc_impl_thread_local_hazard_set_head = (xrc_impl_hazard*)hazard->pointer;
+    return hazard;
+}
+
+static inline xrc_impl_hazard* xrc_impl_hazard_set_release_allocate(
+    xrc_impl_hazard* target
+    )
+{
+    if (target->thread_local_reference_count == 0)
+        return target;
+
+    target->thread_local_reference_count--;
+    return xrc_impl_hazard_set_allocate_hazard();
+}
+
+
+inline uint_fast64_t xrc_impl_get_epoch_relaxed();
+
+#define XRC_HAZARD_SET_QUISCENCE_THRESHOLD 16
+
+inline void xrc_impl_hazard_quiesce_tick()
+{
+    if (xrc_impl_thread_local_quiesce_count > 0)
+        xrc_impl_thread_local_quiesce_count--;
+    else
+    {
+        // xrc_impl_sequence start_epoch = xrc_impl_get_epoch_relaxed();
+        atomic_store_explicit(
+            xrc_impl_thread_local_hazard_set_release_epoch,
+            xrc_impl_get_epoch_relaxed(),
+            memory_order_release
+            );
+        xrc_impl_thread_local_quiesce_count = XRC_HAZARD_SET_QUISCENCE_THRESHOLD;
+    }
+}
+
 static inline void xrc_impl_hazard_publish(
     xrc_impl_hazard* hazard,
     void*            source
     )
 {
-    atomic_store_explicit(&hazard->pointer, (intptr_t)source, memory_order_relaxed);
+    hazard->pointer = source;
+    xrc_impl_hazard_quiesce_tick();
+}
+
+
+inline void* xrc_impl_hazard_protect_load(
+    xrc_impl_hazard* hazard,
+    atomic_intptr_t* source
+    )
+{
+    // xrc_impl_hazard_quiesce_tick();
+    void* protectee = (void*)atomic_load_explicit(
+        source,
+        memory_order_relaxed
+        );
+    // hazard->pointer = protectee;
+    // xrc_impl_hazard_quiesce_tick();
+    xrc_impl_hazard_publish(hazard, protectee);
+    return protectee;
 }
 
 /**
@@ -69,67 +158,12 @@ static inline void* xrc_impl_hazard_publish_from(
     atomic_intptr_t* source
     )
 {
-    // lock hazard!
-    atomic_store_explicit(
-        &hazard->pointer,
-        XRC_LOCK_SIGNAL,
-        memory_order_relaxed
-        );
-
-    atomic_thread_fence(memory_order_acq_rel);
-
-    // load pointer to transfer
-    void* source_pointer = (void*)atomic_load_explicit(
-        source,
-        memory_order_relaxed
-        );
+    void* source_pointer = xrc_impl_hazard_protect_load(hazard, source);
 
     // unlock and store pointer to hazard!
-    xrc_impl_hazard_publish(hazard, source_pointer);
+    // xrc_impl_hazard_publish(hazard, source_pointer);
 
     hazard->thread_local_reference_count = 0;
 
     return source_pointer;
-}
-
-/**
- * Releases a hazard pointer.
- */
-static inline void xrc_impl_hazard_release(
-    xrc_impl_hazard* target
-    )
-{
-    // printf(
-    //     "Releasing hazard %lu %p %p\n",
-    //     target->thread_local_reference_count,
-    //     xrc_impl_thread_local_hazard_set_head,
-    //     target
-    //     );
-
-    if (target->thread_local_reference_count == 0)
-    {
-        atomic_store_explicit(
-            &target->pointer,
-            (intptr_t)NULL,
-            memory_order_relaxed
-            );
-        *(++xrc_impl_thread_local_hazard_set_head) = target; // push hazard onto freelist
-    }
-    else
-    {
-        target->thread_local_reference_count--;
-    }
-}
-
-/**
- * Allocates a hazard pointer from the freelist.
- */
-static inline xrc_impl_hazard* xrc_impl_hazard_set_allocate_hazard()
-{
-    // printf("Allocating hazard %p %p\n", xrc_impl_thread_local_hazard_set_head, *xrc_impl_thread_local_hazard_set_head);
-    xrc_impl_hazard* hazard = *(xrc_impl_thread_local_hazard_set_head--);
-
-    // the local count is already 0 but this blind write helps the compiler elide operations on the count in some cases
-    hazard->thread_local_reference_count = 0;
-    return hazard;
 }
