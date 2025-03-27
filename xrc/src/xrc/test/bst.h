@@ -68,16 +68,17 @@ static inline bool xrc_bst_find(
     )
 {
     // local pointer
-    xrc_lptr curr;
-    xrc_lptr_initialize_from_sptr(&curr, &((xrc_bst_node*)xrc_sptr_get(&bst->root_parent))->left);
+    // xrc_lptr curr;
+    // xrc_lptr_initialize_from_sptr(&curr, &((xrc_bst_node*)xrc_sptr_get(&bst->root_parent))->left);
+    xrc_lptr curr = xrc_lptr_initialize_from_sptr_by_value(&((xrc_bst_node*)xrc_sptr_get(&bst->root_parent))->left);
 
     for (;;)
     {
-        xrc_bst_node* current_node = (xrc_bst_node*)xrc_lptr_get(&curr);
+        xrc_bst_node* current_node = (xrc_bst_node*)xrc_lptr_get(curr);
         if (current_node == NULL)
         {
             // printf("not found %lu\n", key);
-            xrc_lptr_dispose(&curr);
+            xrc_lptr_dispose(curr);
             return false; // not found
         }
 
@@ -92,11 +93,12 @@ static inline bool xrc_bst_find(
             // found
             // printf("found %lu %lu\n", key, current_node->value);
             *outValue = current_node->value;
-            xrc_lptr_dispose(&curr);
+            xrc_lptr_dispose(curr);
             return true;
         }
 
-        xrc_lptr_assign_from_sptr(&curr, next);
+        //xrc_lptr_assign_from_sptr(&curr, next);
+        curr = xrc_lptr_assign_from_sptr_by_value(curr, next);
     }
 }
 

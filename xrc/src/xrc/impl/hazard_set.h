@@ -56,7 +56,7 @@ extern void xrc_impl_hazard_set_clear(
     xrc_impl_hazard_set* hazard_set
     );
 
-static inline void xrc_impl_hazard_set_free_hazard(
+inline void xrc_impl_hazard_set_free_hazard(
     xrc_impl_hazard* hazard
     )
 {
@@ -67,7 +67,7 @@ static inline void xrc_impl_hazard_set_free_hazard(
 /**
  * Releases a hazard pointer.
  */
-static inline void xrc_impl_hazard_release(
+inline void xrc_impl_hazard_release(
     xrc_impl_hazard* target
     )
 {
@@ -124,7 +124,7 @@ inline void xrc_impl_hazard_quiesce_tick()
     }
 }
 
-static inline void xrc_impl_hazard_publish(
+inline void xrc_impl_hazard_publish(
     xrc_impl_hazard* hazard,
     void*            source
     )
@@ -153,7 +153,7 @@ inline void* xrc_impl_hazard_protect_load(
 /**
  * Sets a hazard pointer to a value loaded from a source pointer.
  */
-static inline void* xrc_impl_hazard_publish_from(
+inline void* xrc_impl_hazard_publish_from(
     xrc_impl_hazard* hazard,
     atomic_intptr_t* source
     )

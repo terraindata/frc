@@ -81,7 +81,7 @@ void xrc_bst_dispose(
     xrc_lptr_initialize(&parent);
     xrc_lptr_assign_from_sptr(&parent, &bst->root_parent);
 
-    xrc_bst_node* pnode = (xrc_bst_node*)xrc_lptr_get(&parent);
+    xrc_bst_node* pnode = (xrc_bst_node*)xrc_lptr_get(parent);
     if (pnode)
     {
         // set left= null, right= null
@@ -91,7 +91,7 @@ void xrc_bst_dispose(
     // dispose root_parent
     xrc_sptr_dispose(&bst->root_parent);
 
-    xrc_lptr_dispose(&parent);
+    xrc_lptr_dispose(parent);
 }
 
 
@@ -123,7 +123,7 @@ retry:
 
     for (;;)
     {
-        parent_node                = (xrc_bst_node*)xrc_lptr_get(&parent);
+        parent_node                = (xrc_bst_node*)xrc_lptr_get(parent);
         parent_lock                = &parent_node->lock;
         xrc_bst_node* current_node = (xrc_bst_node*)xrc_lptr_assign_from_sptr(&current_ptr, current_reference);
 
@@ -186,8 +186,8 @@ retry:
 
     // cleanup:
     pthread_mutex_unlock(parent_lock);
-    xrc_lptr_dispose(&current_ptr);
-    xrc_lptr_dispose(&parent);
+    xrc_lptr_dispose(current_ptr);
+    xrc_lptr_dispose(parent);
     xrc_sptr_dispose(&replacement);
     return inserted;
 }
@@ -210,15 +210,15 @@ bool xrc_bst_remove(
 retry:
 
     xrc_lptr_assign_from_sptr(&parent, &bst->root_parent);
-    xrc_bst_node*    parent_node       = (xrc_bst_node*)xrc_lptr_get(&parent);
+    xrc_bst_node*    parent_node       = (xrc_bst_node*)xrc_lptr_get(parent);
     xrc_sptr*        current_reference = &parent_node->left;
     pthread_mutex_t* parent_lock;
     for (;;)
     {
-        parent_node = (xrc_bst_node*)xrc_lptr_get(&parent);
+        parent_node = (xrc_bst_node*)xrc_lptr_get(parent);
         parent_lock = &parent_node->lock;
         xrc_lptr_assign_from_sptr(&current_ptr, current_reference);
-        xrc_bst_node* current_node = (xrc_bst_node*)xrc_lptr_get(&current_ptr);
+        xrc_bst_node* current_node = (xrc_bst_node*)xrc_lptr_get(current_ptr);
 
         if (current_node == NULL)
             break;
@@ -295,8 +295,8 @@ retry:
     } // while
 
     pthread_mutex_unlock(parent_lock);
-    xrc_lptr_dispose(&current_ptr);
-    xrc_lptr_dispose(&parent);
+    xrc_lptr_dispose(current_ptr);
+    xrc_lptr_dispose(parent);
     return removed;
 }
 

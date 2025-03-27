@@ -45,11 +45,11 @@ static inline void xrc_lptr_initialize(
 /**
  * Returns the value of a local pointer.
  */
-static inline void* xrc_lptr_get(
-    xrc_lptr* target
+inline void* xrc_lptr_get(
+    xrc_lptr target
     )
 {
-    return target->pointer;
+    return target.pointer;
     // return (void*)atomic_load_explicit(&target->hazard->pointer, memory_order_relaxed);
 }
 
@@ -129,16 +129,40 @@ static inline void xrc_lptr_initialize_from_sptr(
     //     );
 }
 
+inline xrc_lptr xrc_lptr_initialize_from_sptr_by_value(
+    xrc_sptr* source
+    )
+{
+    xrc_impl_hazard* hazard  = xrc_impl_hazard_set_allocate_hazard();
+    void*            pointer = xrc_impl_hazard_publish_from(
+        hazard,
+        &source->pointer
+        );
+    return (xrc_lptr){
+        .hazard = hazard,
+        .pointer = pointer
+    };
+    // target->hazard  = xrc_impl_hazard_set_allocate_hazard();
+    // target->pointer = xrc_impl_hazard_publish_from(
+    //     target->hazard,
+    //     &source->pointer
+    //     );
+    // xrc_impl_hazard_publish_from(
+    //     target->hazard,
+    //     &source->pointer
+    //     );
+}
+
 /**
  * Disposes a local pointer.
  * Call this when a local pointer is no longer needed.
  * If it is not called, any protected memory will continue to be pinned indefinitely.
  */
-static inline void xrc_lptr_dispose(
-    xrc_lptr* target
+inline void xrc_lptr_dispose(
+    xrc_lptr target
     )
 {
-    xrc_impl_hazard_release(target->hazard);
+    xrc_impl_hazard_release(target.hazard);
 }
 
 
@@ -203,6 +227,33 @@ inline void* xrc_lptr_assign_from_sptr(
         );
     target->pointer = result;
     // atomic_store_explicit(&target->hazard->pointer, (intptr_t)result, memory_order_relaxed);
+    return result;
+}
+
+
+inline xrc_lptr xrc_lptr_assign_from_sptr_by_value(
+    xrc_lptr  target,
+    xrc_sptr* source
+    )
+{
+    xrc_lptr result;
+
+    xrc_impl_hazard* hazard = target.hazard;
+    if (hazard->thread_local_reference_count != 0)
+    {
+        hazard->thread_local_reference_count--;
+        result.hazard = xrc_impl_hazard_set_allocate_hazard();
+    }
+    else
+    {
+        result.hazard = hazard;
+    }
+
+    result.pointer = xrc_impl_hazard_publish_from(
+        result.hazard,
+        &source->pointer
+        );
+
     return result;
 }
 
@@ -308,7 +359,7 @@ static inline void xrc_sptr_initialize_from_lptr(
     )
 {
     xrc_impl_increment_reference_count(source);
-    atomic_store_explicit(&target->pointer, (intptr_t)xrc_lptr_get(source), memory_order_release);
+    atomic_store_explicit(&target->pointer, (intptr_t)xrc_lptr_get(*source), memory_order_release);
 }
 
 /**
@@ -390,7 +441,7 @@ static inline void xrc_sptr_assign_lptr(
     xrc_lptr* source
     )
 {
-    xrc_sptr_assign_vptr(target, xrc_lptr_get(source));
+    xrc_sptr_assign_vptr(target, xrc_lptr_get(*source));
 }
 
 /**
@@ -479,7 +530,7 @@ static inline void xrc_sptr_assign_lptr_atomic_without_increment(
     xrc_lptr* source
     )
 {
-    xrc_sptr_assign_vptr_atomic_without_increment(target, xrc_lptr_get(source));
+    xrc_sptr_assign_vptr_atomic_without_increment(target, xrc_lptr_get(*source));
 }
 
 /**
