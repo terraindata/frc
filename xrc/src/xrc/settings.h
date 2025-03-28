@@ -35,7 +35,7 @@
 
 #define XRC_EPOCH_INCREMENT (1 << 2)
 
-#define XRC_REFERENCE_COUNT atomic_int_least16_t
+#define XRC_REFERENCE_COUNT atomic_int_least32_t
 #define XRC_ALLOCATION_FLAGS uint8_t
 #define XRC_ALLOCATION_OFFSET uint8_t
 #define XRC_LENGTH_CODE uint16_t
