@@ -121,6 +121,7 @@ retry:
                 || (xrc_sptr_get(current_reference) != NULL))
             {
                 // printf("Lock failed\n");
+                pthread_mutex_unlock(&parent_node->lock); // unlock parent
                 goto retry_cleanup; // failed certification
             }
 
@@ -129,6 +130,7 @@ retry:
             xrc_sptr_assign_move(current_reference, &replacement);
             inserted = true;
 
+            pthread_mutex_unlock(&parent_node->lock); // unlock parent
             goto cleanup; // inserted
         }
 
@@ -160,13 +162,11 @@ retry:
         continue;
 
     retry_cleanup:
-        pthread_mutex_unlock(&parent_node->lock); // unlock parent
         xrc_lptr_dispose(parent);
         xrc_lptr_dispose(current_ptr);
         goto retry;
 
     cleanup:
-        pthread_mutex_unlock(&parent_node->lock); // unlock parent
         xrc_lptr_dispose(parent);
         xrc_lptr_dispose(current_ptr);
         xrc_sptr_dispose(&replacement);
@@ -205,7 +205,7 @@ retry:
                     xrc_sptr_get(current_reference) != current_node))
             {
                 // failed certification
-                pthread_mutex_unlock(&current_node->lock);
+                pthread_mutex_unlock(&parent_node->lock);
                 xrc_lptr_dispose(parent);
                 xrc_lptr_dispose(current_ptr);
                 goto retry;
@@ -281,51 +281,6 @@ retry:
 }
 
 /**
- * find
- */
-// bool xrc_bst_find(
-//     xrc_bst*       bst,
-//     xrc_bst_value  key,
-//     xrc_bst_value* outValue
-//     )
-// {
-//     // local pointer
-//     xrc_lptr curr;
-//     xrc_lptr_initialize_from_sptr(&curr, &((xrc_bst_node*)xrc_sptr_get(&bst->root_parent))->left);
-//
-//     bool found = false;
-//     for (;;)
-//     {
-//         xrc_bst_node* current_node = (xrc_bst_node*)xrc_lptr_get(&curr);
-//         if (current_node == NULL)
-//         {
-//             // printf("not found %lu\n", key);
-//             break; // not found
-//         }
-//
-//         xrc_bst_value current_key = current_node->key;
-//         // printf("current_key %lu\n", current_key);
-//
-//         if (current_key == key)
-//         {
-//             // found
-//             // printf("found %lu %lu\n", key, current_node->value);
-//             *outValue = current_node->value;
-//             found     = true;
-//             break;
-//         }
-//
-//         if (key < current_key)
-//             xrc_lptr_assign_from_sptr(&curr, &current_node->left);
-//         else
-//             xrc_lptr_assign_from_sptr(&curr, &current_node->right);
-//     }
-//
-//     xrc_lptr_dispose(&curr);
-//     return found;
-// }
-
-/**
  * swapMin used by remove
  */
 static void xrc_bst_swap_min(
@@ -345,20 +300,17 @@ static void xrc_bst_swap_min(
 
     if (left == NULL)
     {
-        replacement_key   = &current_node->key;
-        replacement_value = &current_node->value;
+        *replacement_key   = current_node->key;
+        *replacement_value = current_node->value;
 
-        if (right != NULL)
+        if (right == NULL)
             xrc_sptr_clear(new_curr);
         else
             xrc_sptr_assign(new_curr, right);
     }
     else
     {
-        xrc_sptr new_curr_sptr;
-        xrc_sptr_initialize(&new_curr_sptr);
-        xrc_bst_node* new_node = xrc_bst_node_initialize(&new_curr_sptr, current_node->key, current_node->value);
-        xrc_sptr_assign_move(new_curr, &new_curr_sptr);
+        xrc_bst_node* new_node = xrc_bst_node_initialize(new_curr, current_node->key, current_node->value);
         xrc_sptr_assign(&new_node->right, right);
         xrc_bst_swap_min(replacement_key, replacement_value, &new_node->left, &current_node->left);
     }
