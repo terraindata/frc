@@ -68,7 +68,7 @@ extern void xrc_impl_hazard_set_clear(
     xrc_impl_hazard_set* hazard_set
     );
 
-inline void xrc_impl_hazard_set_free_hazard(
+static inline void xrc_impl_hazard_set_free_hazard(
     xrc_impl_hazard* hazard
     )
 {
@@ -79,25 +79,23 @@ inline void xrc_impl_hazard_set_free_hazard(
 /**
  * Releases a hazard pointer.
  */
-inline void xrc_impl_hazard_release(
+static inline void xrc_impl_hazard_release(
     xrc_impl_hazard* target
     )
 {
+    // if (target == NULL)
+    //     return;
+
     if (target->thread_local_reference_count == 0)
-    {
         xrc_impl_hazard_set_free_hazard(target);
-    }
     else
-    {
         target->thread_local_reference_count--;
-    }
-    // target->thread_local_reference_count--;
 }
 
 /**
  * Allocates a hazard pointer from the freelist.
  */
-inline xrc_impl_hazard* xrc_impl_hazard_set_allocate_hazard()
+static inline xrc_impl_hazard* xrc_impl_hazard_set_allocate_hazard()
 {
     xrc_impl_hazard* hazard = xrc_impl_thread_local_hazard_control.xrc_impl_thread_local_hazard_set_head;
     xrc_impl_thread_local_hazard_control.xrc_impl_thread_local_hazard_set_head = (xrc_impl_hazard*)hazard->pointer;
@@ -116,9 +114,9 @@ static inline xrc_impl_hazard* xrc_impl_hazard_set_release_allocate(
 }
 
 
-inline uint_fast64_t xrc_impl_get_epoch();
+static inline uint_fast64_t xrc_impl_get_epoch();
 
-inline void xrc_impl_hazard_quiesce(
+static inline void xrc_impl_hazard_quiesce(
     )
 {
     if (xrc_impl_thread_local_hazard_control.xrc_impl_thread_local_quiesce_count == 0)
@@ -134,7 +132,7 @@ inline void xrc_impl_hazard_quiesce(
         xrc_impl_thread_local_hazard_control.xrc_impl_thread_local_quiesce_count--;
 }
 
-inline void xrc_impl_hazard_publish(
+static inline void xrc_impl_hazard_publish(
     xrc_impl_hazard* hazard,
     void*            source
     )
@@ -144,7 +142,7 @@ inline void xrc_impl_hazard_publish(
 }
 
 
-inline void* xrc_impl_hazard_protect_load(
+static inline void* xrc_impl_hazard_protect_load(
     xrc_impl_hazard* hazard,
     atomic_intptr_t* source
     )
@@ -160,7 +158,7 @@ inline void* xrc_impl_hazard_protect_load(
 /**
  * Sets a hazard pointer to a value loaded from a source pointer.
  */
-inline void* xrc_impl_hazard_publish_from(
+static inline void* xrc_impl_hazard_publish_from(
     xrc_impl_hazard* hazard,
     atomic_intptr_t* source
     )

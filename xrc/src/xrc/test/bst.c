@@ -6,7 +6,7 @@
 
 
 static void xrc_bst_swap_min(
-    xrc_bst_value* replacement_key,
+    xrc_bst_key*   replacement_key,
     xrc_bst_value* replacement_value,
     xrc_sptr*      new_curr_sptr,
     xrc_sptr*      curr_sptr
@@ -29,11 +29,11 @@ void xrc_bst_node_dispose(
  */
 static xrc_bst_node* xrc_bst_node_initialize(
     xrc_sptr*     target,
-    xrc_bst_value key,
+    xrc_bst_key   key,
     xrc_bst_value value
     )
 {
-    xrc_sptr_initialize_with_allocation(
+    xrc_bst_node* node = (xrc_bst_node*)xrc_sptr_assign_allocate(
         target,
         sizeof(xrc_bst_node),
         alignof(xrc_bst_node),
@@ -42,7 +42,6 @@ static xrc_bst_node* xrc_bst_node_initialize(
         0
         );
 
-    xrc_bst_node* node = (xrc_bst_node*)xrc_sptr_get(target);
     pthread_mutex_init(&node->lock, NULL);
     node->current = true;
     node->key     = key;
@@ -62,6 +61,7 @@ void xrc_bst_initialize(
     xrc_bst* bst
     )
 {
+    xrc_sptr_initialize(&bst->root_parent);
     xrc_bst_node_initialize(
         &bst->root_parent,
         0,
@@ -77,21 +77,7 @@ void xrc_bst_dispose(
     xrc_bst* bst
     )
 {
-    xrc_lptr parent;
-    xrc_lptr_initialize(&parent);
-    xrc_lptr_assign_from_sptr(&parent, &bst->root_parent);
-
-    xrc_bst_node* pnode = (xrc_bst_node*)xrc_lptr_get(parent);
-    if (pnode)
-    {
-        // set left= null, right= null
-        xrc_sptr_clear(&pnode->left);
-        xrc_sptr_clear(&pnode->right);
-    }
-    // dispose root_parent
     xrc_sptr_dispose(&bst->root_parent);
-
-    xrc_lptr_dispose(parent);
 }
 
 
@@ -100,15 +86,10 @@ void xrc_bst_dispose(
  */
 bool xrc_bst_insert(
     xrc_bst*      bst,
-    xrc_bst_value key,
+    xrc_bst_key   key,
     xrc_bst_value value
     )
 {
-    xrc_lptr parent;
-    xrc_lptr_initialize(&parent);
-    xrc_lptr current_ptr;
-    xrc_lptr_initialize(&current_ptr);
-
     // potential new node
     xrc_sptr replacement;
     xrc_sptr_initialize(&replacement);
@@ -116,16 +97,14 @@ bool xrc_bst_insert(
     bool inserted = false;
 
 retry:
-
-    xrc_bst_node* parent_node = (xrc_bst_node*)xrc_lptr_assign_from_sptr(&parent, &bst->root_parent);
-    xrc_sptr*        current_reference = &parent_node->left;
-    pthread_mutex_t* parent_lock;
+    xrc_lptr parent = xrc_lptr_initialize_from_sptr(&bst->root_parent);
+    xrc_sptr* current_reference = &((xrc_bst_node*)xrc_lptr_get(parent))->left;
 
     for (;;)
     {
-        parent_node                = (xrc_bst_node*)xrc_lptr_get(parent);
-        parent_lock                = &parent_node->lock;
-        xrc_bst_node* current_node = (xrc_bst_node*)xrc_lptr_assign_from_sptr(&current_ptr, current_reference);
+        xrc_bst_node* parent_node  = (xrc_bst_node*)xrc_lptr_get(parent);
+        xrc_lptr      current_ptr  = xrc_lptr_initialize_from_sptr(current_reference);
+        xrc_bst_node* current_node = (xrc_bst_node*)xrc_lptr_get(current_ptr);
 
         if (current_node == NULL)
         {
@@ -134,14 +113,10 @@ retry:
             {
                 // printf("Creating new node %p %lu %lu\n", current_reference, key, value);
                 // create a new node
-                xrc_sptr node_sptr;
-                xrc_bst_node_initialize(&node_sptr, key, value);
-                // assign to replacement
-                xrc_sptr_assign_move(&replacement, &node_sptr);
+                xrc_bst_node_initialize(&replacement, key, value);
             }
 
-            // lock parent
-            pthread_mutex_lock(parent_lock);
+            pthread_mutex_lock(&parent_node->lock); // lock parent
             if (!parent_node->current
                 || (xrc_sptr_get(current_reference) != NULL))
             {
@@ -153,7 +128,8 @@ retry:
             // printf("Linking new node %p %p\n", current_reference, xrc_sptr_get(&replacement));
             xrc_sptr_assign_move(current_reference, &replacement);
             inserted = true;
-            break; // inserted
+
+            goto cleanup; // inserted
         }
 
         // descend
@@ -162,12 +138,16 @@ retry:
             // lock
             pthread_mutex_lock(&current_node->lock);
             if (!current_node->current)
+            {
+                pthread_mutex_unlock(&current_node->lock);
                 goto retry_cleanup; // failed certification
+            }
 
             // printf("Updating node\n");
             current_node->value = value; // updated
             inserted            = false;
-            break; // updated
+            pthread_mutex_unlock(&current_node->lock);
+            goto cleanup; // updated
         }
 
 
@@ -176,60 +156,60 @@ retry:
         else
             current_reference = &current_node->right;
 
-        xrc_lptr_assign(&parent, &current_ptr);
+        parent = xrc_lptr_assign_move(parent, current_ptr);
         continue;
 
     retry_cleanup:
-        pthread_mutex_unlock(parent_lock);
+        pthread_mutex_unlock(&parent_node->lock); // unlock parent
+        xrc_lptr_dispose(parent);
+        xrc_lptr_dispose(current_ptr);
         goto retry;
-    }
 
-    // cleanup:
-    pthread_mutex_unlock(parent_lock);
-    xrc_lptr_dispose(current_ptr);
-    xrc_lptr_dispose(parent);
-    xrc_sptr_dispose(&replacement);
-    return inserted;
+    cleanup:
+        pthread_mutex_unlock(&parent_node->lock); // unlock parent
+        xrc_lptr_dispose(parent);
+        xrc_lptr_dispose(current_ptr);
+        xrc_sptr_dispose(&replacement);
+        return inserted;
+    }
 }
 
 /**
  * remove
  */
 bool xrc_bst_remove(
-    xrc_bst*      bst,
-    xrc_bst_value key
+    xrc_bst*    bst,
+    xrc_bst_key key
     )
 {
-    xrc_lptr parent;
-    xrc_lptr_initialize(&parent);
-    xrc_lptr current_ptr;
-    xrc_lptr_initialize(&current_ptr);
-
     bool removed = false;
 
 retry:
+    xrc_lptr parent = xrc_lptr_initialize_from_sptr(&bst->root_parent);
+    xrc_sptr* current_reference = &((xrc_bst_node*)xrc_lptr_get(parent))->left;
 
-    xrc_lptr_assign_from_sptr(&parent, &bst->root_parent);
-    xrc_bst_node*    parent_node       = (xrc_bst_node*)xrc_lptr_get(parent);
-    xrc_sptr*        current_reference = &parent_node->left;
-    pthread_mutex_t* parent_lock;
     for (;;)
     {
-        parent_node = (xrc_bst_node*)xrc_lptr_get(parent);
-        parent_lock = &parent_node->lock;
-        xrc_lptr_assign_from_sptr(&current_ptr, current_reference);
+        xrc_bst_node* parent_node  = (xrc_bst_node*)xrc_lptr_get(parent);
+        xrc_lptr      current_ptr  = xrc_lptr_initialize_from_sptr(current_reference);
         xrc_bst_node* current_node = (xrc_bst_node*)xrc_lptr_get(current_ptr);
 
         if (current_node == NULL)
-            break;
+            goto cleanup; // not found
 
         if (key == current_node->key)
         {
             // remove node
-            pthread_mutex_lock(parent_lock);
+            pthread_mutex_lock(&parent_node->lock); // lock parent
             if (!parent_node->current || (
                     xrc_sptr_get(current_reference) != current_node))
-                goto retry_cleanup; // failed certification
+            {
+                // failed certification
+                pthread_mutex_unlock(&current_node->lock);
+                xrc_lptr_dispose(parent);
+                xrc_lptr_dispose(current_ptr);
+                goto retry;
+            }
 
             current_node->current = false; //disconnect
 
@@ -241,7 +221,7 @@ retry:
             if (left == NULL)
             {
                 if (right == NULL)
-                    xrc_sptr_assign(current_reference, NULL); // node is a leaf, remove it
+                    xrc_sptr_clear(current_reference); // node is a leaf, remove it
                 else // if node has only a right child, replace curr with it
                     xrc_sptr_assign(
                         current_reference,
@@ -262,22 +242,26 @@ retry:
                  * descendant of right child, and remove that descendant node
                  */
 
-                xrc_sptr      new_node_ptr;
+                xrc_sptr new_node_ptr;
+                xrc_sptr_initialize(&new_node_ptr);
                 xrc_bst_node* new_node = xrc_bst_node_initialize(&new_node_ptr, 0, 0);
                 xrc_sptr_assign(
                     &new_node->left,
                     xrc_sptr_get(&current_node->left)
                     );
 
-                xrc_bst_value newKey = 0, newVal = 0;
+                xrc_bst_key   newKey = 0;
+                xrc_bst_value newVal = 0;
                 xrc_bst_swap_min(&newKey, &newVal, &new_node->right, &current_node->right);
                 new_node->key   = newKey;
                 new_node->value = newVal;
 
                 xrc_sptr_assign_move(current_reference, &new_node_ptr);
             }
+            pthread_mutex_unlock(&parent_node->lock); // unlock parent
+
             removed = true;
-            break;
+            goto cleanup;
         }
 
 
@@ -286,18 +270,14 @@ retry:
         else
             current_reference = &current_node->right;
 
-        xrc_lptr_assign(&parent, &current_ptr);
+        parent = xrc_lptr_assign_move(parent, current_ptr);
         continue;
 
-    retry_cleanup:
-        pthread_mutex_unlock(parent_lock);
-        goto retry;
-    } // while
-
-    pthread_mutex_unlock(parent_lock);
-    xrc_lptr_dispose(current_ptr);
-    xrc_lptr_dispose(parent);
-    return removed;
+    cleanup:
+        xrc_lptr_dispose(parent);
+        xrc_lptr_dispose(current_ptr);
+        return removed;
+    }
 }
 
 /**
@@ -349,7 +329,7 @@ retry:
  * swapMin used by remove
  */
 static void xrc_bst_swap_min(
-    xrc_bst_value* replacement_key,
+    xrc_bst_key*   replacement_key,
     xrc_bst_value* replacement_value,
     xrc_sptr*      new_curr,
     xrc_sptr*      curr
@@ -369,13 +349,14 @@ static void xrc_bst_swap_min(
         replacement_value = &current_node->value;
 
         if (right != NULL)
-            xrc_sptr_assign(new_curr, NULL);
+            xrc_sptr_clear(new_curr);
         else
             xrc_sptr_assign(new_curr, right);
     }
     else
     {
-        xrc_sptr      new_curr_sptr;
+        xrc_sptr new_curr_sptr;
+        xrc_sptr_initialize(&new_curr_sptr);
         xrc_bst_node* new_node = xrc_bst_node_initialize(&new_curr_sptr, current_node->key, current_node->value);
         xrc_sptr_assign_move(new_curr, &new_curr_sptr);
         xrc_sptr_assign(&new_node->right, right);

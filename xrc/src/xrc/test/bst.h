@@ -5,6 +5,7 @@
 #include <xrc/pointers.h>
 
 typedef uint64_t xrc_bst_value;
+typedef uint64_t xrc_bst_key;
 
 /**
  * BST node structure
@@ -14,7 +15,7 @@ typedef struct xrc_bst_node
     pthread_mutex_t lock;
     bool            current;
 
-    long          key;
+    xrc_bst_key   key;
     xrc_bst_value value;
 
     // children are xrc_sptr => pointing to more xrc_bst_node
@@ -43,9 +44,9 @@ extern void xrc_bst_initialize(
  * Returns true if a new node was created, false if updated an existing node.
  */
 extern bool xrc_bst_insert(
-    xrc_bst* bst,
-    uint64_t key,
-    uint64_t value
+    xrc_bst*      bst,
+    xrc_bst_key   key,
+    xrc_bst_value value
     );
 
 /**
@@ -53,8 +54,8 @@ extern bool xrc_bst_insert(
  * If the node has two children, we do a minimal 'swapMin' approach or skip the removal.
  */
 extern bool xrc_bst_remove(
-    xrc_bst* bst,
-    uint64_t key
+    xrc_bst*    bst,
+    xrc_bst_key key
     );
 
 // typedef struct xrc_bst_find_result
@@ -115,7 +116,7 @@ extern bool xrc_bst_remove(
 
 static inline bool xrc_bst_find_no_hazards(
     xrc_bst*       bst,
-    xrc_bst_value  key,
+    xrc_bst_key    key,
     xrc_bst_value* outValue
     )
 {
@@ -166,14 +167,11 @@ static inline bool xrc_bst_find_no_hazards(
 
 static inline bool xrc_bst_find(
     xrc_bst*       bst,
-    xrc_bst_value  key,
+    xrc_bst_key    key,
     xrc_bst_value* outValue
     )
 {
-    // local pointer
-    // xrc_lptr curr;
-    // xrc_lptr_initialize_from_sptr(&curr, &((xrc_bst_node*)xrc_sptr_get(&bst->root_parent))->left);
-    xrc_lptr curr = xrc_lptr_initialize_from_sptr_by_value(&((xrc_bst_node*)xrc_sptr_get(&bst->root_parent))->left);
+    xrc_lptr curr = xrc_lptr_initialize_from_sptr(&((xrc_bst_node*)xrc_sptr_get(&bst->root_parent))->left);
 
     for (;;)
     {
@@ -201,8 +199,7 @@ static inline bool xrc_bst_find(
             (key < current_node->key) ? &current_node->left : &current_node->right
         );
 
-        //xrc_lptr_assign_from_sptr(&curr, next);
-        curr = xrc_lptr_assign_from_sptr_by_value(curr, next);
+        curr = xrc_lptr_assign_from_sptr(curr, next);
     }
 }
 
