@@ -91,7 +91,7 @@ bool xrc_raw_bst_insert(
     xrc_raw_bst_node* replacement = NULL;
 
 retry:
-    xrc_raw_bst_node* parent = (xrc_raw_bst_node*)xrc_sptr_get(&bst->root_parent);
+    xrc_raw_bst_node* parent = bst->root_parent;
     xrc_raw_bst_node** current_reference = &parent->left;
 
     for (;;)
@@ -165,7 +165,7 @@ bool xrc_raw_bst_remove(
     bool removed = false;
 
 retry:
-    xrc_raw_bst_node* parent = (xrc_raw_bst_node*)xrc_sptr_get(&bst->root_parent);
+    xrc_raw_bst_node* parent = bst->root_parent;
     xrc_raw_bst_node** current_reference = &parent->left;
 
     for (;;)
@@ -181,7 +181,7 @@ retry:
             // remove node
             pthread_mutex_lock(&parent->lock); // lock parent
             if (!parent->current || (
-                    xrc_sptr_get(current_reference) != current))
+                    *current_reference != current))
             {
                 // failed certification
                 pthread_mutex_unlock(&parent->lock);

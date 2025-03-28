@@ -10,9 +10,15 @@
 
 // typedef atomic_intptr_t xrc_sptr;
 
-typedef struct xrc_sptr
+// typedef struct xrc_sptr
+// {
+//     atomic_intptr_t pointer;
+// } xrc_sptr;
+
+typedef union xrc_sptr
 {
     atomic_intptr_t pointer;
+    void*           raw_pointer;
 } xrc_sptr;
 
 /**
@@ -186,6 +192,7 @@ static inline xrc_lptr xrc_lptr_assign_from_sptr(
         target.hazard,
         &source->pointer
         );
+    // target.pointer = (void*)atomic_load_explicit(&source->pointer, memory_order_relaxed);
     return target;
 }
 
@@ -196,7 +203,8 @@ static inline void* xrc_sptr_get(
     xrc_sptr* target
     )
 {
-    return (void*)atomic_load_explicit(&target->pointer, memory_order_relaxed);
+    return target->raw_pointer;
+    // return (void*)atomic_load_explicit(&target->pointer, memory_order_relaxed);
 }
 
 /**
@@ -347,7 +355,8 @@ static inline void xrc_sptr_dispose(
     )
 {
     void* previous_value = xrc_sptr_acquire(target);
-    atomic_store_explicit(&target->pointer, (intptr_t)NULL, memory_order_relaxed);
+    target->raw_pointer  = NULL;
+    // atomic_store_explicit(&target->pointer, (intptr_t)NULL, memory_order_relaxed);
     xrc_impl_buffer_decrement(previous_value);
 }
 
@@ -402,7 +411,8 @@ static inline void xrc_sptr_initalize_move(
     )
 {
     atomic_store_explicit(&target->pointer, (intptr_t)source, memory_order_release);
-    atomic_store_explicit(&source->pointer, (intptr_t)NULL, memory_order_relaxed);
+    source->raw_pointer = NULL;
+    // atomic_store_explicit(&source->pointer, (intptr_t)NULL, memory_order_relaxed);
 }
 
 
@@ -418,7 +428,8 @@ static inline void xrc_sptr_assign_move(
     )
 {
     xrc_sptr_assign_vptr_without_increment(target, xrc_sptr_get(source));
-    atomic_store_explicit(&source->pointer, (intptr_t)NULL, memory_order_relaxed);
+    source->raw_pointer = NULL;
+    // atomic_store_explicit(&source->pointer, (intptr_t)NULL, memory_order_relaxed);
 }
 
 /**

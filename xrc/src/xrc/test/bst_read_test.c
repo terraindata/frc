@@ -35,9 +35,9 @@
 // -------------------------------------------------------------------------
 // Configuration
 // -------------------------------------------------------------------------
-#define NUM_NODES   ((uint64_t)100000)
+#define NUM_NODES   ((uint64_t)1000000)
 #define NUM_THREADS 1
-#define NUM_OPS     ((uint64_t)10000)
+#define NUM_OPS     ((uint64_t)10000000)
 
 // -------------------------------------------------------------------------
 // A simple barrier implementation in standard C (C11/C17).
@@ -220,8 +220,7 @@ static int read_benchmark_thread(
     timespec_get(&start, TIME_UTC);
     for (uint64_t i = 0; i < ops; i++)
     {
-        uint64_t outValue = 0;
-        (void)xrc_bst_find(bst, keys[i], &outValue);
+        xrc_bst_find(bst, keys[i]);
         // printf("Thread %p: key %lu, value %lu\n", data, keys[i], outValue);
     }
     timespec_get(&end, TIME_UTC);
@@ -246,11 +245,12 @@ int main(
     void
     )
 {
+    bind_thread_to_core(0);
+    srand(0);
+
     // xrc global init
     xrc_initialize();
     xrc_attach_thread();
-
-    srand((unsigned)time(NULL));
 
     // 1. Initialize BST
     xrc_bst bst;
@@ -259,7 +259,7 @@ int main(
     // 2. Build BST with random keys
     build_random_bst(&bst, NUM_NODES);
 
-    for (size_t rep = 0; rep < 100; ++rep)
+    for (size_t rep = 0; rep < 4; ++rep)
     {
         // 3. Prepare data for each thread
         thrd_t             threads[NUM_THREADS];

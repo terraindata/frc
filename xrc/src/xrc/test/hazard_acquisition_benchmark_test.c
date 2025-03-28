@@ -29,10 +29,6 @@ void shuffle_array(
     size_t  n
     )
 {
-    // Seed the random number generator (do this once in your program,
-    // for example in main(), if you call shuffle_array multiple times).
-    srand((unsigned)time(NULL));
-
     // Fisher–Yates shuffle.
     for (size_t i = n - 1; i > 0; i--)
     {
@@ -654,6 +650,10 @@ int main(
     void
     )
 {
+    // Seed the random number generator (do this once in your program,
+    // for example in main(), if you call shuffle_array multiple times).
+    srand(0);
+
     int traversals   = 4;
     int thread_count = 4;
     // if (argc >= 2)

@@ -35,9 +35,9 @@
 // -------------------------------------------------------------------------
 // Configuration
 // -------------------------------------------------------------------------
-#define NUM_NODES   ((uint64_t)100000)
+#define NUM_NODES   ((uint64_t)1000000)
 #define NUM_THREADS 1
-#define NUM_OPS     ((uint64_t)10000)
+#define NUM_OPS     ((uint64_t)10000000)
 
 // -------------------------------------------------------------------------
 // A simple barrier implementation in standard C (C11/C17).
@@ -135,7 +135,7 @@ static void shuffle_array(
 // -------------------------------------------------------------------------
 static void build_random_bst(
     xrc_raw_bst* bst,
-    uint64_t numNodes
+    uint64_t     numNodes
     )
 {
     uint64_t* keys = (uint64_t*)malloc(numNodes * sizeof(uint64_t));
@@ -172,9 +172,9 @@ static void build_random_bst(
 typedef struct
 {
     xrc_raw_bst* bst;
-    uint32_t core;
-    uint64_t numNodes;
-    uint64_t ops;
+    uint32_t     core;
+    uint64_t     numNodes;
+    uint64_t     ops;
     // Per-thread total time (in nanoseconds) for all reads
     uint64_t time;
     // Barrier pointer for synchronization
@@ -191,19 +191,19 @@ static int read_benchmark_thread(
     )
 {
     read_thread_data_t* data     = (read_thread_data_t*)arg;
-    xrc_raw_bst*            bst      = data->bst;
+    xrc_raw_bst*        bst      = data->bst;
     uint64_t            numNodes = data->numNodes;
     uint64_t            ops      = data->ops;
 
     bind_thread_to_core(data->core);
-    xrc_attach_thread();
+    // xrc_attach_thread();
 
     // Pre-generate random keys
     uint64_t* keys = (uint64_t*)malloc(sizeof(uint64_t) * ops);
     if (!keys)
     {
         fprintf(stderr, "Thread malloc failed for keys array.\n");
-        xrc_detach_thread();
+        // xrc_detach_thread();
         return thrd_success;
     }
 
@@ -220,8 +220,7 @@ static int read_benchmark_thread(
     timespec_get(&start, TIME_UTC);
     for (uint64_t i = 0; i < ops; i++)
     {
-        uint64_t outValue = 0;
-        (void)xrc_raw_bst_find(bst, keys[i], &outValue);
+        xrc_raw_bst_find(bst, keys[i]);
         // printf("Thread %p: key %lu, value %lu\n", data, keys[i], outValue);
     }
     timespec_get(&end, TIME_UTC);
@@ -235,7 +234,7 @@ static int read_benchmark_thread(
     data->time = duration;
 
     free(keys);
-    xrc_detach_thread();
+    // xrc_detach_thread();
     return thrd_success;
 }
 
@@ -246,11 +245,13 @@ int main(
     void
     )
 {
-    // xrc global init
-    xrc_initialize();
-    xrc_attach_thread();
+    bind_thread_to_core(0);
+    srand(0);
 
-    srand((unsigned)time(NULL));
+    // xrc global init
+    // xrc_initialize();
+    // xrc_attach_thread();
+
 
     // 1. Initialize BST
     xrc_raw_bst bst;
@@ -259,7 +260,7 @@ int main(
     // 2. Build BST with random keys
     build_random_bst(&bst, NUM_NODES);
 
-    for (size_t rep = 0; rep < 100; ++rep)
+    for (size_t rep = 0; rep < 4; ++rep)
     {
         // 3. Prepare data for each thread
         thrd_t             threads[NUM_THREADS];
@@ -322,10 +323,10 @@ int main(
     }
 
     // 9. Clean up
-    xrc_raw_bst_dispose(&bst);
-
-    xrc_detach_thread();
-    xrc_terminate();
+    // xrc_raw_bst_dispose(&bst);
+    //
+    // xrc_detach_thread();
+    // xrc_terminate();
 
     return EXIT_SUCCESS;
 }

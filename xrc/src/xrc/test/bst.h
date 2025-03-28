@@ -58,7 +58,146 @@ extern bool xrc_bst_remove(
     xrc_bst_key key
     );
 
-static inline bool xrc_bst_find_no_hazards(
+//raw pointers is 330 ns. 431-439 ns @ 3.2Ghz
+
+// // static inline bool xrc_bst_find_(
+//     static inline bool xrc_bst_find(
+//     xrc_bst*       bst,
+//     xrc_bst_key    key,
+//     xrc_bst_value* outValue
+//     )
+// {
+//     xrc_bst_node* current_node = (xrc_bst_node*)((xrc_bst_node*)bst->root_parent.raw_pointer)->left.raw_pointer;
+//     for (;;)
+//     {
+//         if (current_node == NULL)
+//         {
+//             return false; // not found
+//         }
+//
+//         if (key == current_node->key)
+//         {
+//             // found
+//             *outValue = current_node->value;
+//             return true;
+//         }
+//
+//         current_node = (xrc_bst_node*)(
+//             (key < current_node->key) ? current_node->left.raw_pointer : current_node->right.raw_pointer
+//         );
+//     }
+// }
+
+// Inline helper to load a pointer from an atomic pointer with relaxed memory order.
+// static inline xrc_bst_node* load_node(
+//     xrc_sptr* sptr
+//     )
+// {
+//     return (xrc_bst_node*)atomic_load_explicit(&sptr->pointer, memory_order_relaxed);
+// }
+
+static inline xrc_bst_node* load_node(
+    xrc_sptr* sptr
+    )
+{
+    return sptr->raw_pointer;
+}
+
+typedef struct xrc_bst_find_result
+{
+    bool          found;
+    xrc_bst_value value;
+} xrc_bst_find_result;
+
+// 520 ns
+// __attribute__((noinline)) static xrc_bst_find_result xrc_bst_find(
+// static inline xrc_bst_find_result xrc_bst_find(
+static inline xrc_bst_find_result xrc_bst_find_raw_pointers(
+    xrc_bst*    bst,
+    xrc_bst_key key
+    )
+{
+    xrc_bst_node* current_node = load_node(&load_node(&bst->root_parent)->left);
+
+    for (;;)
+    {
+        if (current_node == NULL)
+            return (xrc_bst_find_result){.found = false};
+
+        if (key == current_node->key)
+            return (xrc_bst_find_result){.found = true, .value = current_node->value};
+
+        void* left   = current_node->left.raw_pointer;
+        void* right  = current_node->right.raw_pointer;
+        current_node = (xrc_bst_node*)((key < current_node->key) ? left : right);
+    }
+}
+
+
+// // static inline bool xrc_bst_find_(
+// __attribute__((noinline)) static bool xrc_bst_find(
+//     xrc_bst*       bst,
+//     xrc_bst_key    key,
+//     xrc_bst_value* outValue
+//     )
+// {
+//     xrc_bst_node* current_node = ((xrc_bst_node*)bst->root_parent.raw_pointer)->left.raw_pointer;
+//     for (;;)
+//     {
+//         if (current_node == NULL)
+//         {
+//             return false; // not found
+//         }
+//
+//         if (key == current_node->key)
+//         {
+//             // found
+//             *outValue = current_node->value;
+//             return true;
+//         }
+//
+//         current_node = (key < current_node->key) ? current_node->left.raw_pointer : current_node->right.raw_pointer;
+//     }
+// }
+
+/*
+xrc_bst_find.isra.0:
+.LFB133:
+    .cfi_startproc
+    movq	64(%rdi), %rax
+    testq	%rax, %rax
+    jne	.L12
+    ret
+    .p2align 4
+    .p2align 3
+.L24:
+    movq	64(%rax), %rax
+    testq	%rax, %rax
+    je	.L22
+.L12:
+    movq	48(%rax), %rcx
+    cmpq	%rsi, %rcx
+    je	.L23
+    cmpq	%rcx, %rsi
+    jb	.L24
+    movq	72(%rax), %rax
+    testq	%rax, %rax
+    jne	.L12
+.L22:
+    ret
+    .p2align 4
+    .p2align 3
+.L23:
+    movq	56(%rax), %rax
+    movq	%rax, (%rdx)
+    ret
+    .cfi_endproc
+    */
+
+//330 ns
+// 459-460 ns @ 3.2Ghz
+static inline bool xrc_bst_find_(
+    // __attribute__((noinline)) static bool xrc_bst_find(
     xrc_bst*       bst,
     xrc_bst_key    key,
     xrc_bst_value* outValue
@@ -82,17 +221,97 @@ static inline bool xrc_bst_find_no_hazards(
             return true;
         }
 
-        xrc_sptr* next = (
-            (key < current_node->key) ? &current_node->left : &current_node->right
-        );
+        // xrc_sptr* next = (
+        //     (key < current_node->key) ? &current_node->left : &current_node->right
+        // );
+        // current_node = (xrc_bst_node*)atomic_load_explicit(
+        //     &next->pointer,
+        //     memory_order_relaxed
+        //     );
         current_node = (xrc_bst_node*)atomic_load_explicit(
-            &next->pointer,
+            (key < current_node->key) ? &current_node->left.pointer : &current_node->right.pointer,
             memory_order_relaxed
             );
     }
 }
 
-static inline bool xrc_bst_find(
+/*
+xrc_bst_find.isra.0:
+.LFB132:
+    .cfi_startproc
+    movq	(%rdi), %rax
+    movq	64(%rax), %rax
+    testq	%rax, %rax
+    jne	.L16
+    ret
+    .p2align 4
+    .p2align 3
+.L12:
+    leaq	64(%rax), %rdi
+    addq	$72, %rax
+    cmpq	%rcx, %rsi
+    cmovb	%rdi, %rax
+    movq	(%rax), %rax
+    testq	%rax, %rax
+    je	.L21
+.L16:
+    movq	48(%rax), %rcx
+    cmpq	%rsi, %rcx
+    jne	.L12
+    movq	56(%rax), %rax
+    movq	%rax, (%rdx)
+    ret
+    .p2align 4
+    .p2align 3
+.L21:
+    ret
+    .cfi_endproc
+ */
+
+// using xrc_lptr but no ops on it
+// 461-473 ns @ 3.2Ghz
+static inline bool xrc_bst_find_m1(
+    // static inline bool xrc_bst_find(
+    xrc_bst*       bst,
+    xrc_bst_key    key,
+    xrc_bst_value* outValue
+    )
+{
+    xrc_lptr curr;
+    curr.pointer = (void*)atomic_load_explicit(
+        &(((xrc_bst_node*)xrc_sptr_get(&bst->root_parent))->left.pointer),
+        memory_order_relaxed
+        );
+
+    for (;;)
+    {
+        // xrc_bst_node* current_node = (xrc_bst_node*)xrc_lptr_get(curr);
+        xrc_bst_node* current_node = (xrc_bst_node*)curr.pointer;
+        if (current_node == NULL)
+        {
+            return false; // not found
+        }
+
+        if (key == current_node->key)
+        {
+            // found
+            *outValue = current_node->value;
+            return true;
+        }
+
+        curr.pointer = (xrc_bst_node*)atomic_load_explicit(
+            (key < current_node->key) ? &current_node->left.pointer : &current_node->right.pointer,
+            memory_order_relaxed
+            );
+    }
+}
+
+// 329 ns -- initialization and disposal have no measurable cost?
+// 471 ns @ 3.2Ghz : ~51 ns (55% of the 92 ns overhead is from repeated calls to xrc_lptr_assign_from_sptr)
+// and 41 ns (45% of the 92 ns overhead is from initialization, disposal, and usage of lptr)
+// 493
+static inline bool xrc_bst_find_m2(
+    // static inline bool xrc_bst_find(
     xrc_bst*       bst,
     xrc_bst_key    key,
     xrc_bst_value* outValue
@@ -102,7 +321,8 @@ static inline bool xrc_bst_find(
 
     for (;;)
     {
-        xrc_bst_node* current_node = (xrc_bst_node*)xrc_lptr_get(curr);
+        // xrc_bst_node* current_node = (xrc_bst_node*)xrc_lptr_get(curr);
+        xrc_bst_node* current_node = (xrc_bst_node*)curr.pointer;
         if (current_node == NULL)
         {
             // printf("not found %lu\n", key);
@@ -122,11 +342,51 @@ static inline bool xrc_bst_find(
             return true;
         }
 
-        xrc_sptr* next = (
-            (key < current_node->key) ? &current_node->left : &current_node->right
-        );
+        // xrc_sptr* next = (
+        //     (key < current_node->key) ? &current_node->left : &current_node->right
+        // );
 
-        curr = xrc_lptr_assign_from_sptr(curr, next);
+
+        // curr = xrc_lptr_assign_from_sptr(curr, next);
+        curr.pointer = (xrc_bst_node*)atomic_load_explicit(
+            (key < current_node->key) ? &current_node->left.pointer : &current_node->right.pointer,
+            memory_order_relaxed
+            );
+    }
+}
+
+// 528 ns @ 3.2Ghz:  only 8 ns overhead vs raw pointers (520 ns)
+//raw pointers is 17 ns slower than raw pointer bst find (503 ns)
+// -> 3.3% overhead from memory inflation
+// -> 1.6% overhead from xrc operations
+static inline xrc_bst_find_result xrc_bst_find(
+    // static inline xrc_bst_find_result xrc_bst_find_hp(
+    xrc_bst*    bst,
+    xrc_bst_key key
+    )
+{
+    xrc_lptr curr = xrc_lptr_initialize_from_sptr(&((xrc_bst_node*)xrc_sptr_get(&bst->root_parent))->left);
+
+    for (;;)
+    {
+        xrc_bst_node* current_node = (xrc_bst_node*)xrc_lptr_get(curr);
+
+        if (current_node == NULL)
+        {
+            xrc_lptr_dispose(curr);
+            return (xrc_bst_find_result){.found = false};
+        }
+
+        if (key == current_node->key)
+        {
+            xrc_lptr_dispose(curr);
+            return (xrc_bst_find_result){.found = true, .value = current_node->value};
+        }
+
+        curr = xrc_lptr_assign_from_sptr(
+            curr,
+            ((key < current_node->key) ? &current_node->left : &current_node->right)
+            );
     }
 }
 
