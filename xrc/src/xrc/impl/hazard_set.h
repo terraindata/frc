@@ -116,20 +116,28 @@ static inline xrc_impl_hazard* xrc_impl_hazard_set_release_allocate(
 
 static inline uint_fast64_t xrc_impl_get_epoch();
 
-static inline void xrc_impl_hazard_quiesce(
+static void xrc_impl_hazard_quiesce_to_epoch(
+    xrc_impl_sequence epoch
     )
 {
-    if (xrc_impl_thread_local_hazard_control.xrc_impl_thread_local_quiesce_count == 0)
-    {
-        atomic_store_explicit(
-            xrc_impl_thread_local_hazard_control.xrc_impl_thread_local_hazard_set_release_epoch,
-            xrc_impl_get_epoch(),
-            memory_order_release
-            );
-        xrc_impl_thread_local_hazard_control.xrc_impl_thread_local_quiesce_count = XRC_HAZARD_SET_QUIESCENCE_THRESHOLD;
-    }
-    else
-        xrc_impl_thread_local_hazard_control.xrc_impl_thread_local_quiesce_count--;
+    atomic_store_explicit(
+        xrc_impl_thread_local_hazard_control.xrc_impl_thread_local_hazard_set_release_epoch,
+        epoch,
+        memory_order_release
+        );
+    xrc_impl_thread_local_hazard_control.xrc_impl_thread_local_quiesce_count = XRC_HAZARD_SET_QUIESCENCE_THRESHOLD;
+}
+
+static void xrc_impl_hazard_quiesce()
+{
+    xrc_impl_hazard_quiesce_to_epoch(xrc_impl_get_epoch());
+}
+
+static inline void xrc_impl_hazard_quiesce_tick(
+    )
+{
+    if (--xrc_impl_thread_local_hazard_control.xrc_impl_thread_local_quiesce_count == 0)
+        xrc_impl_hazard_quiesce();
 }
 
 static inline void xrc_impl_hazard_publish(
@@ -138,7 +146,7 @@ static inline void xrc_impl_hazard_publish(
     )
 {
     hazard->pointer = source;
-    xrc_impl_hazard_quiesce(hazard);
+    xrc_impl_hazard_quiesce_tick(hazard);
 }
 
 
@@ -163,12 +171,7 @@ static inline void* xrc_impl_hazard_publish_from(
     atomic_intptr_t* source
     )
 {
-    void* source_pointer = xrc_impl_hazard_protect_load(hazard, source);
-
-    // unlock and store pointer to hazard!
-    // xrc_impl_hazard_publish(hazard, source_pointer);
-
+    void* source_pointer                 = xrc_impl_hazard_protect_load(hazard, source);
     hazard->thread_local_reference_count = 0;
-
     return source_pointer;
 }

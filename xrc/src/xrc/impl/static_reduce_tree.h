@@ -117,25 +117,11 @@ extern void xrc_impl_static_reduce_tree_mutex_wake(
     xrc_impl_sequence_atomic* node_value_ptr
     );
 
-static inline void xrc_impl_static_reduce_tree_update_min_unlock(
+extern void xrc_impl_static_reduce_tree_update_min_unlock(
     xrc_impl_static_reduce_tree* target,
     size_t                       leaf_index,
     xrc_impl_sequence            value
-    )
-{
-    size_t                    index          = leaf_index + XRC_IMPL_STATIC_REDUCE_TREE_NUM_LEAVES;
-    xrc_impl_sequence_atomic* node_value_ptr = &target->nodes[index].value;
-
-    xrc_impl_sequence previous_value = atomic_fetch_or_explicit(
-        node_value_ptr,
-        3,
-        memory_order_acq_rel
-        );
-
-    // if waiters were present notify one
-    if (previous_value & 1)
-        xrc_impl_static_reduce_tree_mutex_wake(node_value_ptr);
-}
+    );
 
 // /**
 //  * Updates the tree by setting the value of a leaf node to a given value.

@@ -17,8 +17,8 @@
 
 typedef union xrc_sptr
 {
-    atomic_intptr_t pointer;
-    void*           raw_pointer;
+    atomic_intptr_t atomic_pointer;
+    void*           ordinary_pointer;
 } xrc_sptr;
 
 /**
@@ -127,7 +127,7 @@ static inline xrc_lptr xrc_lptr_initialize_from_sptr(
     result.hazard  = xrc_impl_hazard_set_allocate_hazard();
     result.pointer = xrc_impl_hazard_publish_from(
         result.hazard,
-        &source->pointer
+        &source->atomic_pointer
         );
     return result;
 }
@@ -145,7 +145,7 @@ static inline void xrc_lptr_dispose(
 }
 
 /**
- * Clears a local pointer, releasing it's previous pin and
+ * Clears a local pointer, releasing its previous pin and
  * setting it to NULL.
  */
 static inline xrc_lptr xrc_lptr_clear(
@@ -190,7 +190,7 @@ static inline xrc_lptr xrc_lptr_assign_from_sptr(
     target.hazard  = xrc_impl_hazard_set_release_allocate(target.hazard);
     target.pointer = xrc_impl_hazard_publish_from(
         target.hazard,
-        &source->pointer
+        &source->atomic_pointer
         );
     // target.pointer = (void*)atomic_load_explicit(&source->pointer, memory_order_relaxed);
     return target;
@@ -203,7 +203,7 @@ static inline void* xrc_sptr_get(
     xrc_sptr* target
     )
 {
-    return target->raw_pointer;
+    return target->ordinary_pointer;
     // return (void*)atomic_load_explicit(&target->pointer, memory_order_relaxed);
 }
 
@@ -214,7 +214,7 @@ static inline void* xrc_sptr_acquire(
     xrc_sptr* target
     )
 {
-    return (void*)atomic_load_explicit(&target->pointer, memory_order_acquire);
+    return (void*)atomic_load_explicit(&target->atomic_pointer, memory_order_acquire);
 }
 
 
@@ -227,7 +227,7 @@ static inline void xrc_sptr_initialize(
     xrc_sptr* target
     )
 {
-    atomic_store_explicit(&target->pointer, (intptr_t)NULL, memory_order_release);
+    atomic_store_explicit(&target->atomic_pointer, (intptr_t)NULL, memory_order_release);
 }
 
 
@@ -263,7 +263,7 @@ static inline void* xrc_sptr_initialize_with_allocation(
         dispose,
         flags
         );
-    atomic_store_explicit(&target->pointer, (intptr_t)memory, memory_order_release);
+    atomic_store_explicit(&target->atomic_pointer, (intptr_t)memory, memory_order_release);
     return memory;
 }
 
@@ -273,7 +273,7 @@ static inline void* xrc_sptr_get_and_increment_atomic(
 {
     xrc_impl_hazard* hazard         = xrc_impl_thread_local_hazard_control.xrc_impl_thread_local_hazard_set_head;
     void*            next           = hazard->pointer; // reserve next pointer
-    void*            source_pointer = xrc_impl_hazard_protect_load(hazard, &target->pointer);
+    void*            source_pointer = xrc_impl_hazard_protect_load(hazard, &target->atomic_pointer);
     xrc_impl_increment_reference_count(source_pointer);
     hazard->pointer = next; // restore next pointer
     return source_pointer;
@@ -292,7 +292,7 @@ static inline void xrc_sptr_initialize_with_copy_of(
     )
 {
     atomic_store_explicit(
-        &target->pointer,
+        &target->atomic_pointer,
         (intptr_t)xrc_sptr_get_and_increment_atomic(source),
         memory_order_release
         );
@@ -311,20 +311,21 @@ static inline void xrc_sptr_initialize_from_lptr(
     )
 {
     xrc_impl_increment_reference_count(source.pointer);
-    atomic_store_explicit(&target->pointer, (intptr_t)xrc_lptr_get(source), memory_order_release);
+    atomic_store_explicit(&target->atomic_pointer, (intptr_t)xrc_lptr_get(source), memory_order_release);
 }
 
 /**
  * Assigns a shared pointer to a void* without incrementing the reference count.
  */
-static inline void xrc_sptr_assign_vptr_without_increment(
+static inline void* xrc_sptr_assign_vptr_without_increment(
     xrc_sptr* target,
     void*     source
     )
 {
     void* previous_value = xrc_sptr_get(target);
-    atomic_store_explicit(&target->pointer, (intptr_t)source, memory_order_release);
+    atomic_store_explicit(&target->atomic_pointer, (intptr_t)source, memory_order_release);
     xrc_impl_buffer_decrement(previous_value);
+    return source;
 }
 
 /**
@@ -332,13 +333,13 @@ static inline void xrc_sptr_assign_vptr_without_increment(
  *
  * Caller must be the only mutator. Concurrent reads are permitted.
  */
-static inline void xrc_sptr_assign_vptr(
+static inline void* xrc_sptr_assign_vptr(
     xrc_sptr* target,
     void*     source
     )
 {
     xrc_impl_increment_reference_count(source);
-    xrc_sptr_assign_vptr_without_increment(target, source);
+    return xrc_sptr_assign_vptr_without_increment(target, source);
 }
 
 
@@ -354,10 +355,9 @@ static inline void xrc_sptr_dispose(
     xrc_sptr* target
     )
 {
-    void* previous_value = xrc_sptr_acquire(target);
-    target->raw_pointer  = NULL;
+    xrc_impl_buffer_decrement(xrc_sptr_get(target));
+    //target->raw_pointer = NULL; // probably not needed.
     // atomic_store_explicit(&target->pointer, (intptr_t)NULL, memory_order_relaxed);
-    xrc_impl_buffer_decrement(previous_value);
 }
 
 
@@ -376,7 +376,7 @@ static inline void xrc_sptr_clear(
 /**
  * Assigns a shared pointer to point to the same memory as another.
  *
- * Caller must be the only mutator. Concurrent reads are permitted.
+ * Caller must be the only mutator of either pointer. Concurrent reads are permitted.
  *
  * Releases the previous reference and acquires the new one.
  */
@@ -404,14 +404,15 @@ static inline void xrc_sptr_assign_lptr(
  * Leaves the source shared pointer as NULL.
  *
  * Caller must be the only mutator for both pointers.
+ * Caller must be the only thread with access to the source pointer.
  */
-static inline void xrc_sptr_initalize_move(
+static inline void xrc_sptr_initialize_move(
     xrc_sptr* target,
     xrc_sptr* source
     )
 {
-    atomic_store_explicit(&target->pointer, (intptr_t)source, memory_order_release);
-    source->raw_pointer = NULL;
+    atomic_store_explicit(&target->atomic_pointer, (intptr_t)xrc_sptr_get(source), memory_order_release);
+    source->ordinary_pointer = NULL; // may not be needed?
     // atomic_store_explicit(&source->pointer, (intptr_t)NULL, memory_order_relaxed);
 }
 
@@ -421,6 +422,7 @@ static inline void xrc_sptr_initalize_move(
  * Leaves the source shared pointer as NULL.
  *
  * Caller must be the only mutator for both pointers.
+ * Caller must be the only thread with access to the source pointer.
  */
 static inline void xrc_sptr_assign_move(
     xrc_sptr* target,
@@ -428,7 +430,7 @@ static inline void xrc_sptr_assign_move(
     )
 {
     xrc_sptr_assign_vptr_without_increment(target, xrc_sptr_get(source));
-    source->raw_pointer = NULL;
+    source->ordinary_pointer = NULL;
     // atomic_store_explicit(&source->pointer, (intptr_t)NULL, memory_order_relaxed);
 }
 
@@ -447,31 +449,20 @@ static inline void xrc_sptr_assign_vptr_atomic_without_increment(
     void*     source
     )
 {
-    intptr_t previous_value = atomic_exchange_explicit(&target->pointer, (intptr_t)source, memory_order_acq_rel);
-    xrc_impl_buffer_decrement((void*)previous_value);
+    void* previous_value = (void*)atomic_exchange_explicit(&target->atomic_pointer, (intptr_t)source, memory_order_acq_rel);
+    xrc_impl_buffer_decrement(previous_value);
 }
 
-// /**
-//  * Atomically assigns a shared pointer to point to the same memory as another without incrementing the reference count.
-//  * Use cases are very specific.
-//  * WARNING: If you don't know what this does, don't call it.
-//  *  You are likely to have a memory leak or a use after free bug if not called under the correct circumstances.
-//  *
-//  * Concurrent readers and mutators are permitted.
-//  *
-//  * Releases the previous reference but does not acquire the new one.
-//  */
-// static inline void xrc_sptr_assign_atomic_without_increment(
-//     xrc_sptr* target,
-//     xrc_sptr* source
-//     )
-// {
-//     xrc_sptr_assign_vptr_atomic_without_increment(
-//         target,
-//         xrc_sptr_acquire(source)
-//         );
-// }
-
+/**
+ * Atomically assigns a shared pointer to point to the same memory as another without incrementing the reference count.
+ * Use cases are very specific.
+ * WARNING: If you don't know what this does, don't call it.
+ *  You are likely to have a memory leak or a use after free bug if not called under the correct circumstances.
+ *
+ * Concurrent readers and mutators are permitted.
+ *
+ * Releases the previous reference but does not acquire the new one.
+ */
 static inline void xrc_sptr_assign_atomic(
     xrc_sptr* target,
     xrc_sptr* source
@@ -481,7 +472,8 @@ static inline void xrc_sptr_assign_atomic(
 }
 
 /**
- * Atomically assigns a shared pointer to point to the memory referenced by a local pointer without incrementing the reference count.
+ * Atomically assigns a shared pointer to point to the memory referenced by a local pointer without incrementing the
+ * reference count.
  * Use cases are very specific.
  * WARNING: If you don't know what this does, don't call it.
  *  You are likely to have a memory leak or a use after free bug if not called under the correct circumstances.
@@ -551,8 +543,16 @@ static inline void* xrc_sptr_assign_allocate(
     xrc_impl_allocation_flags flags
     )
 {
-    xrc_sptr_dispose(target);
-    return xrc_sptr_initialize_with_allocation(target, size, alignment, length, dispose, flags);
+    return xrc_sptr_assign_vptr_without_increment(
+        target,
+        xrc_alloc(
+            size,
+            alignment,
+            length,
+            dispose,
+            flags
+            )
+        );
 }
 
 /**
@@ -580,12 +580,14 @@ static inline void xrc_sptr_assign_allocate_atomic(
     xrc_impl_allocation_flags flags
     )
 {
-    void* memory = xrc_alloc(
-        size,
-        alignment,
-        length,
-        dispose,
-        flags
+    xrc_sptr_assign_vptr_atomic_without_increment(
+        target,
+        xrc_alloc(
+            size,
+            alignment,
+            length,
+            dispose,
+            flags
+            )
         );
-    xrc_sptr_assign_vptr_atomic_without_increment(target, memory);
 }

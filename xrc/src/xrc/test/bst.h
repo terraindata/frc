@@ -100,7 +100,7 @@ static inline xrc_bst_node* load_node(
     xrc_sptr* sptr
     )
 {
-    return sptr->raw_pointer;
+    return sptr->ordinary_pointer;
 }
 
 typedef struct xrc_bst_find_result
@@ -127,8 +127,8 @@ static inline xrc_bst_find_result xrc_bst_find_raw_pointers(
         if (key == current_node->key)
             return (xrc_bst_find_result){.found = true, .value = current_node->value};
 
-        void* left   = current_node->left.raw_pointer;
-        void* right  = current_node->right.raw_pointer;
+        void* left   = current_node->left.ordinary_pointer;
+        void* right  = current_node->right.ordinary_pointer;
         current_node = (xrc_bst_node*)((key < current_node->key) ? left : right);
     }
 }
@@ -204,7 +204,7 @@ static inline bool xrc_bst_find_(
     )
 {
     xrc_bst_node* current_node = (xrc_bst_node*)atomic_load_explicit(
-        &(((xrc_bst_node*)xrc_sptr_get(&bst->root_parent))->left.pointer),
+        &(((xrc_bst_node*)xrc_sptr_get(&bst->root_parent))->left.atomic_pointer),
         memory_order_relaxed
         );
     for (;;)
@@ -229,7 +229,7 @@ static inline bool xrc_bst_find_(
         //     memory_order_relaxed
         //     );
         current_node = (xrc_bst_node*)atomic_load_explicit(
-            (key < current_node->key) ? &current_node->left.pointer : &current_node->right.pointer,
+            (key < current_node->key) ? &current_node->left.atomic_pointer : &current_node->right.atomic_pointer,
             memory_order_relaxed
             );
     }
@@ -279,7 +279,7 @@ static inline bool xrc_bst_find_m1(
 {
     xrc_lptr curr;
     curr.pointer = (void*)atomic_load_explicit(
-        &(((xrc_bst_node*)xrc_sptr_get(&bst->root_parent))->left.pointer),
+        &(((xrc_bst_node*)xrc_sptr_get(&bst->root_parent))->left.atomic_pointer),
         memory_order_relaxed
         );
 
@@ -300,7 +300,7 @@ static inline bool xrc_bst_find_m1(
         }
 
         curr.pointer = (xrc_bst_node*)atomic_load_explicit(
-            (key < current_node->key) ? &current_node->left.pointer : &current_node->right.pointer,
+            (key < current_node->key) ? &current_node->left.atomic_pointer : &current_node->right.atomic_pointer,
             memory_order_relaxed
             );
     }
@@ -349,7 +349,7 @@ static inline bool xrc_bst_find_m2(
 
         // curr = xrc_lptr_assign_from_sptr(curr, next);
         curr.pointer = (xrc_bst_node*)atomic_load_explicit(
-            (key < current_node->key) ? &current_node->left.pointer : &current_node->right.pointer,
+            (key < current_node->key) ? &current_node->left.atomic_pointer : &current_node->right.atomic_pointer,
             memory_order_relaxed
             );
     }
@@ -359,6 +359,7 @@ static inline bool xrc_bst_find_m2(
 //raw pointers is 17 ns slower than raw pointer bst find (503 ns)
 // -> 3.3% overhead from memory inflation
 // -> 1.6% overhead from xrc operations
+// -> 5.0% total overhead
 static inline xrc_bst_find_result xrc_bst_find(
     // static inline xrc_bst_find_result xrc_bst_find_hp(
     xrc_bst*    bst,

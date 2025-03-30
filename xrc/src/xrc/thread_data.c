@@ -4,8 +4,10 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <stddef.h>
+#include <time.h>
 
 #include <xrc/thread_data.h>
+#include <xrc/impl/splitmix.h>
 
 
 // thread_local xrc_impl_hazard*          xrc_impl_thread_local_hazard_set_head;
@@ -25,8 +27,11 @@ void xrc_initialize()
     xrc_impl_static_reduce_tree_init(&xrc_impl_control_data.scan_time_tree, UINT64_MAX);
     xrc_impl_static_reduce_tree_init(&xrc_impl_control_data.completed_scan_time_tree, UINT64_MAX);
 
-    for (size_t i = 0; i < XRC_MAX_THREADS; i++)
+    uint64_t rng_seed_base = (uint64_t)time(NULL) + (486187739 * (uint64_t)&rng_seed_base);
+
+    for (size_t i = XRC_MAX_THREADS; i > 0;)
     {
+        i--;
         xrc_impl_thread_data* thread_data = &xrc_impl_control_data.thread_data_array[i];
         thread_data->index                = i;
         // atomic_store_explicit(&thread_data->is_alive, 0, memory_order_release);
@@ -34,6 +39,8 @@ void xrc_initialize()
             &xrc_impl_control_data.free_thread_data,
             &thread_data->stack_node
             );
+        thread_data->local_rng_state     = 92821 * i + rng_seed_base;
+        thread_data->last_thread_scanned = UINT_MAX;
     }
 }
 
@@ -83,6 +90,7 @@ int xrc_attach_thread()
 
     // atomic_store_explicit(&thread_data->is_alive, 1, memory_order_release);
     thread_data->is_collecting = 0;
+
 
     xrc_impl_hazard_set_initialize(&thread_data->hazard_set);
     xrc_impl_decrement_queue_initialize(&thread_data->decrement_queue);
@@ -148,7 +156,10 @@ static void xrc_impl_free(
     void* payload
     )
 {
-    xrc_impl_length_code length_code = xrc_impl_allocation_get_header(payload)->metadata.length_code;
+    xrc_impl_allocation_header* header      = xrc_impl_get_allocation_header(payload);
+    xrc_impl_allocation_flags   flags       = header->metadata.flags;
+    xrc_impl_length_code        length_code = header->metadata.length_code;
+
     if (length_code != XRC_LENGTH_CODE_NO_DISPOSE_NO_EXTENDED)
     {
         xrc_dispose_function dispose_function = xrc_impl_allocation_get_dispose_header(payload)->dispose;
@@ -163,15 +174,17 @@ static void xrc_impl_free(
         }
 
         dispose_function(payload, length);
-    }
 
+        if (flags & XRC_FLAG_DO_NOT_FREE)
+            return;
+    }
 
     char* memory = (char*)payload - xrc_impl_allocation_get_header(payload)->metadata.offset;
     free(memory);
 }
 
 
-static void xrc_impl_execute_decrement(
+static inline void xrc_impl_execute_decrement(
     void* target
     )
 {
@@ -229,6 +242,19 @@ static void xrc_impl_thread_data_scan(
     }
 }
 
+
+static int xrc_impl_is_hazard_set_eligible_for_scanning(
+    xrc_impl_sequence oldest_decrement_epoch,
+    size_t            index
+    )
+{
+    return xrc_impl_static_reduce_tree_get_leaf_value(
+               &xrc_impl_control_data.scan_time_tree,
+               index,
+               memory_order_acquire
+               ) <= (oldest_decrement_epoch | (XRC_EPOCH_INCREMENT - 1));
+}
+
 static int xrc_impl_help_scan(
     size_t            tiebreaker,
     xrc_impl_sequence oldest_decrement_epoch,
@@ -239,16 +265,27 @@ static int xrc_impl_help_scan(
     xrc_impl_thread_data* target = NULL;
 
     // first check if it makes sense to scan this thread's hazard pointers
-    if (try_local_if_eligible && xrc_impl_static_reduce_tree_get_leaf_value(
-            &xrc_impl_control_data.scan_time_tree,
-            xrc_impl_thread_local_thread_data->index,
-            memory_order_relaxed // it's ok if we sometimes miss here, so let it be relaxed
-            ) <= (oldest_decrement_epoch | (XRC_EPOCH_INCREMENT - 1)))
+    if (try_local_if_eligible
+        && xrc_impl_is_hazard_set_eligible_for_scanning(
+            oldest_decrement_epoch,
+            xrc_impl_thread_local_thread_data->index
+            ))
     {
         target = xrc_impl_thread_local_thread_data;
     }
+    else if (xrc_impl_thread_local_thread_data->last_thread_scanned != UINT_MAX
+             && xrc_impl_is_hazard_set_eligible_for_scanning(
+                 oldest_decrement_epoch,
+                 xrc_impl_thread_local_thread_data->last_thread_scanned
+                 ))
+    {
+        target = &xrc_impl_control_data.thread_data_array[xrc_impl_thread_local_thread_data->last_thread_scanned];
+    }
     else
     {
+        // clear last thread scanned hint
+        xrc_impl_thread_local_thread_data->last_thread_scanned = UINT_MAX;
+
         int index = xrc_impl_static_reduce_tree_get_index_less_than_or_equal_to_value(
             &xrc_impl_control_data.scan_time_tree,
             tiebreaker,
@@ -328,6 +365,10 @@ static int xrc_impl_help_scan(
     //         );
     // }
 
+    // if not scanning self, update last thread scanned hint
+    if (target->index != xrc_impl_thread_local_thread_data->index)
+        xrc_impl_thread_local_thread_data->last_thread_scanned = target->index;
+
     xrc_impl_sequence release_epoch = atomic_load_explicit(
         &target->hazard_set.release_epoch,
         memory_order_acquire
@@ -366,6 +407,7 @@ void xrc_help_collect()
     //get current epoch
     xrc_impl_sequence epoch = xrc_impl_get_epoch();
 
+
     // mark epoch of new decrements
     xrc_impl_decrement_queue_mark_epoch_of_new_decrements(queue, epoch);
 
@@ -374,8 +416,11 @@ void xrc_help_collect()
     size_t        scan_tiebreaker           = this_threads_thread_data->index ^ epoch;
     uint_fast64_t oldest_scan_epoch         = xrc_impl_get_last_complete_scan_epoch();
     size_t        scan_attempt              = 0;
+
     for (;;)
     {
+        xrc_impl_hazard_quiesce_to_epoch(epoch);
+
         for (size_t num_dequeues = XRC_MAX_DECREMENTS_EXECUTED_PER_COLLECTION; num_dequeues > 0; num_dequeues--)
         {
             // try to pop from decrement stack
@@ -409,7 +454,6 @@ void xrc_help_collect()
             // possibly also steal a decrement from the scanned thread
             // for (size_t scan_attempt = 0; status_code > 0; scan_attempt++)
             // {
-            ++scan_attempt;
             if (scan_attempt > 4)
             {
                 printf(
@@ -431,7 +475,7 @@ void xrc_help_collect()
                 // xrc_impl_reduce_tree_pretty_print(&xrc_impl_control_data.completed_scan_time_tree);
             }
             status_code = xrc_impl_help_scan(
-                scan_tiebreaker++,
+                xrc_impl_splitmix_next(&this_threads_thread_data->local_rng_state),
                 oldest_decrement_epoch,
                 xrc_impl_decrement_queue_headroom(queue) >
                 XRC_MIN_DECREMENT_QUEUE_HEADROOM_BEFORE_BLOCKING_SCAN
@@ -440,20 +484,33 @@ void xrc_help_collect()
                 );
 
             oldest_scan_epoch = xrc_impl_get_last_complete_scan_epoch();
-            // }
+            scan_attempt++;
 
-            if (status_code == 0)
+            if (status_code <= 0)
             {
-                //successful scan
-                num_dequeues = ((num_dequeues < XRC_SCAN_TO_DECREMENT_WORK_CONVERSION_FACTOR) ?
-                                    0 :
-                                    num_dequeues - XRC_SCAN_TO_DECREMENT_WORK_CONVERSION_FACTOR) + 1;
-            } // (else stole a decrement to process)
+                //successful attempt
+                scan_attempt = 0;
+
+                if (status_code == 0)
+                {
+                    //successful scan
+                    num_dequeues = ((num_dequeues < XRC_SCAN_TO_DECREMENT_WORK_CONVERSION_FACTOR) ?
+                                        0 :
+                                        num_dequeues - XRC_SCAN_TO_DECREMENT_WORK_CONVERSION_FACTOR) + 1;
+                } // (else stole a decrement to process)
+            }
         }
+
 
         xrc_impl_decrement_queue_set_threshold(queue);
         if (!xrc_impl_decrement_queue_is_at_threshold(queue))
             break;
+
+        if (scan_attempt >= XRC_MAX_ATTEMPTS_TO_HELP_SCAN_BEFORE_YIELDING)
+            thrd_yield();
+
+        epoch = xrc_impl_get_epoch();
     }
+
     xrc_impl_thread_local_thread_data->is_collecting = 0;
 }

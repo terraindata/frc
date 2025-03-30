@@ -189,14 +189,16 @@ int xrc_impl_static_reduce_tree_update_min_lock(
         {
             // locked with no waiters
             // try to mark as locked with waiters
-            atomic_compare_exchange_strong_explicit(
-                node_value_ptr,
-                &previous_value,
-                previous_value | 1,
-                memory_order_acq_rel,
-                memory_order_acquire
-                );
+            if (!atomic_compare_exchange_strong_explicit(
+                    node_value_ptr,
+                    &previous_value,
+                    previous_value | 1,
+                    memory_order_acq_rel,
+                    memory_order_acquire
+                    ) && (previous_value & 1) == 0)
+                return -2; // failed to wait due to contention
 
+            // wait bit is set
             if (previous_value >= value)
                 return -1; // leaf value is already greater than or equal to the new value
         }
@@ -210,6 +212,33 @@ void xrc_impl_static_reduce_tree_mutex_wake(
     )
 {
     _mutex_wake(node_value_ptr, 1);
+}
+
+void xrc_impl_static_reduce_tree_update_min_unlock(
+    xrc_impl_static_reduce_tree* target,
+    size_t                       leaf_index,
+    xrc_impl_sequence            value
+    )
+{
+    size_t                    index          = leaf_index + XRC_IMPL_STATIC_REDUCE_TREE_NUM_LEAVES;
+    xrc_impl_sequence_atomic* node_value_ptr = &target->nodes[index].value;
+
+
+    xrc_impl_sequence previous_value = atomic_exchange_explicit(
+        node_value_ptr,
+        value,
+        memory_order_acq_rel
+        );
+
+    xrc_impl_static_reduce_tree_update_min_from_leaf(
+        target,
+        leaf_index,
+        value
+        );
+
+    // if waiters were present notify
+    if (previous_value & 1)
+        xrc_impl_static_reduce_tree_mutex_wake(node_value_ptr);
 }
 
 size_t xrc_impl_static_reduce_tree_get_max_index(
