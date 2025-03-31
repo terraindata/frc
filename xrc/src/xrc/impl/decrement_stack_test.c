@@ -60,8 +60,7 @@ static size_t perform_owner_op(
             {
                 // pop
                 void* tmp;
-                int   pop_status = xrc_impl_decrement_stack_pop(ds, &tmp);
-                if (pop_status == 0)
+                if (xrc_impl_decrement_stack_pop(ds, &tmp))
                 {
                     count--;
                     printf("Popped %p, length %zu =? %zu\n", tmp, xrc_impl_decrement_stack_length(ds), count);
@@ -152,9 +151,9 @@ TEST_CASE(test_single_thread_push_pop)
         {
             // pop
             void* got;
-            int   pop_result = xrc_impl_decrement_stack_pop(&ds, &got);
-            TEST_ASSERT((pop_result == 0) == (ref_top > 0), "pop - empty mismatch in test1");
-            if (pop_result == 0)
+            bool  pop_result = xrc_impl_decrement_stack_pop(&ds, &got);
+            TEST_ASSERT(pop_result == (ref_top > 0), "pop - empty mismatch in test1");
+            if (pop_result)
             {
                 void* expected = ref_stack[--ref_top];
                 TEST_ASSERT(got == expected, "pop mismatch in test1");
@@ -173,12 +172,12 @@ TEST_CASE(test_single_thread_push_pop)
     while (ref_top > 0)
     {
         void* expected   = ref_stack[--ref_top];
-        int   pop_result = xrc_impl_decrement_stack_pop(&ds, &got);
-        TEST_ASSERT(pop_result== 0, "final pop fail test1");
+        bool  pop_result = xrc_impl_decrement_stack_pop(&ds, &got);
+        TEST_ASSERT(pop_result, "final pop fail test1");
         TEST_ASSERT(got == expected, "final pop mismatch test1");
     }
     TEST_ASSERT(xrc_impl_decrement_stack_is_empty(&ds), "not empty end test1");
-    TEST_ASSERT(xrc_impl_decrement_stack_pop(&ds, &got) != 0, "pop from empty test1");
+    TEST_ASSERT(!xrc_impl_decrement_stack_pop(&ds, &got), "pop from empty test1");
     fprintf(stderr, "[test_single_thread_push_pop] PASS\n");
 }
 

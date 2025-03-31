@@ -5,13 +5,13 @@
 #pragma once
 
 
-#define XRC_EPOCH_ADVANCE_INTERVAL (128)
+#define XRC_EPOCH_ADVANCE_INTERVAL (64)
 
-#define XRC_REDUCE_TREE_POWER (11)
-// #define XRC_REDUCE_TREE_POWER (7)
-// #define XRC_REDUCE_TREE_POWER (4)
-#define XRC_MAX_THREADS (1 << XRC_REDUCE_TREE_POWER)
-#define XRC_HAZARD_SKIP_LIST_HEIGHT (XRC_REDUCE_TREE_POWER)
+#define XRC_tree_router_POWER (11)
+// #define XRC_tree_router_POWER (7)
+// #define XRC_tree_router_POWER (4)
+#define XRC_MAX_THREADS (1 << XRC_tree_router_POWER)
+#define XRC_HAZARD_SKIP_LIST_HEIGHT (XRC_tree_router_POWER)
 #define XRC_HAZARD_SKIP_LIST_ENTRIES_PER_NODE (8)
 
 
@@ -32,6 +32,7 @@
 
 #define XRC_MAX_ATTEMPTS_TO_HELP_SCAN_BEFORE_YIELDING (8)
 #define XRC_MAX_ATTEMPTS_TO_HELP_SCAN_BEFORE_BLOCKING (32)
+#define XRC_HAZARD_SPIN_LIMIT (16)
 
 
 #define XRC_REFERENCE_COUNT atomic_int_least32_t

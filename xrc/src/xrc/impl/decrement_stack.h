@@ -61,7 +61,7 @@ static inline void xrc_impl_decrement_stack_push(
  * Wait-free.
  * Only called by the owner of the stack.
  */
-static inline int xrc_impl_decrement_stack_pop(
+static inline bool xrc_impl_decrement_stack_pop(
     xrc_impl_decrement_stack* target,
     void**                    element
     )
@@ -70,12 +70,12 @@ static inline int xrc_impl_decrement_stack_pop(
     size_t tail = atomic_load_explicit(&target->tail_index, memory_order_acquire);
 
     if (head <= tail)
-        return -1; // failure: empty
+        return false; // failure: empty
 
     head -= 1;
     *element = target->buffer[head % XRC_PER_THREAD_DECREMENT_STACK_LENGTH]; // read element
     atomic_store_explicit(&target->head_index, head, memory_order_release); // update head
-    return 0; // success
+    return true; // success
 }
 
 /**

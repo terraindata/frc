@@ -9,6 +9,8 @@
 #include <stdbool.h>
 #include <xrc/settings.h>
 
+#include <xrc/impl/util/util.h>
+
 /**
  * A single-threaded FIFO queue for buffering non-recursively generated deferred decrements.
  */
@@ -108,11 +110,9 @@ static inline void xrc_impl_decrement_queue_set_threshold(
     xrc_impl_decrement_queue* target
     )
 {
-    size_t queue_headroom = xrc_impl_decrement_queue_headroom(target);
-    size_t interval       = queue_headroom / XRC_DECREMENT_QUEUE_FEEDBACK_FACTOR;
-    if (interval > XRC_DECREMENT_QUEUE_MAX_DECREMENTS_ENQUEUED_PER_COLLECTION)
-        interval = XRC_DECREMENT_QUEUE_MAX_DECREMENTS_ENQUEUED_PER_COLLECTION;
-
+    size_t queue_headroom        = xrc_impl_decrement_queue_headroom(target);
+    size_t interval              = queue_headroom / XRC_DECREMENT_QUEUE_FEEDBACK_FACTOR;
+    interval                     = MIN(interval, XRC_DECREMENT_QUEUE_MAX_DECREMENTS_ENQUEUED_PER_COLLECTION);
     target->collection_threshold = (target->head + interval) % XRC_PER_THREAD_DECREMENT_QUEUE_CAPACITY;
 }
 

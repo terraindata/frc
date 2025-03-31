@@ -2,15 +2,15 @@
 // Created by ctripp on 3/20/25.
 //
 
-#include "reduce_tree.h"
+#include "tree_router.h"
 
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 
-static inline xrc_impl_sequence_atomic* xrc_impl_reduce_tree_value(
-    xrc_impl_reduce_tree* target,
+static inline xrc_impl_sequence_atomic* xrc_impl_tree_router_value(
+    xrc_impl_tree_router* target,
     size_t                index
     )
 {
@@ -18,16 +18,16 @@ static inline xrc_impl_sequence_atomic* xrc_impl_reduce_tree_value(
 }
 
 
-static inline xrc_impl_sequence xrc_impl_reduce_tree_get_value(
-    xrc_impl_reduce_tree* target,
+static inline xrc_impl_sequence xrc_impl_tree_router_get_value(
+    xrc_impl_tree_router* target,
     size_t                index
     )
 {
     return atomic_load_explicit(&(target->nodes[index].value), memory_order_acquire);
 }
 
-void xrc_impl_reduce_tree_init(
-    xrc_impl_reduce_tree* tree,
+void xrc_impl_tree_router_init(
+    xrc_impl_tree_router* tree,
     size_t                power,
     xrc_impl_sequence     initial_value
     )
@@ -35,7 +35,7 @@ void xrc_impl_reduce_tree_init(
     tree->power      = power;
     tree->num_leaves = 1 << power;
     size_t num_nodes = 2 << power;
-    tree->nodes      = (xrc_impl_reduce_tree_node*)malloc(num_nodes * sizeof(xrc_impl_reduce_tree_node));
+    tree->nodes      = (xrc_impl_tree_router_node*)malloc(num_nodes * sizeof(xrc_impl_tree_router_node));
     for (size_t i = 0; i < num_nodes; i++)
     {
         atomic_store_explicit(
@@ -46,32 +46,32 @@ void xrc_impl_reduce_tree_init(
     }
 }
 
-void xrc_impl_reduce_tree_destroy(
-    xrc_impl_reduce_tree* tree
+void xrc_impl_tree_router_destroy(
+    xrc_impl_tree_router* tree
     )
 {
     free(tree->nodes);
 }
 
 
-bool xrc_impl_reduce_tree_find_index_less_than_or_equal_to_value(
-    xrc_impl_reduce_tree* target,
+bool xrc_impl_tree_router_find_index_less_than_or_equal_to_value(
+    xrc_impl_tree_router* target,
     size_t                tiebreaker,
     xrc_impl_sequence     value,
     size_t*               leaf_index
     )
 {
     size_t index = 1;
-    if (value < xrc_impl_reduce_tree_get_value(target, index))
+    if (value < xrc_impl_tree_router_get_value(target, index))
         return false; // no match
 
     for (size_t depth = 0; index < target->num_leaves; depth++)
     {
         index = (index << 1) + ((tiebreaker >> depth) & 1);
-        if (xrc_impl_reduce_tree_get_value(target, index) > value)
+        if (xrc_impl_tree_router_get_value(target, index) > value)
         {
             index ^= 1;
-            if (xrc_impl_reduce_tree_get_value(target, index) > value)
+            if (xrc_impl_tree_router_get_value(target, index) > value)
                 return false; // no match
         }
     }
@@ -80,26 +80,26 @@ bool xrc_impl_reduce_tree_find_index_less_than_or_equal_to_value(
     return true;
 }
 
-int xrc_impl_reduce_tree_set_leaf_value(
-    xrc_impl_reduce_tree* target,
+int xrc_impl_tree_router_set_leaf(
+    xrc_impl_tree_router* target,
     size_t                leaf_index,
     xrc_impl_sequence     value
     )
 {
     size_t index = leaf_index + target->num_leaves;
     atomic_store_explicit(
-        xrc_impl_reduce_tree_value(target, index),
+        xrc_impl_tree_router_value(target, index),
         value,
         memory_order_release
         );
 
     for (; index > 1; index >>= 1)
     {
-        xrc_impl_sequence parent_value = xrc_impl_reduce_tree_get_value(target, index >> 1);
+        xrc_impl_sequence parent_value = xrc_impl_tree_router_get_value(target, index >> 1);
         bool              updated      = false;
         while (true)
         {
-            xrc_impl_sequence sibling_value         = xrc_impl_reduce_tree_get_value(target, index ^ 1);
+            xrc_impl_sequence sibling_value         = xrc_impl_tree_router_get_value(target, index ^ 1);
             xrc_impl_sequence computed_parent_value = (value <= sibling_value) ? value : sibling_value;
 
             if (computed_parent_value == parent_value)
@@ -111,21 +111,21 @@ int xrc_impl_reduce_tree_set_leaf_value(
             }
 
             updated = atomic_compare_exchange_strong_explicit(
-                xrc_impl_reduce_tree_value(target, index >> 1),
+                xrc_impl_tree_router_value(target, index >> 1),
                 &parent_value,
                 computed_parent_value,
                 memory_order_acq_rel,
                 memory_order_acquire
                 );
-            value = xrc_impl_reduce_tree_get_value(target, index); // reload value
+            value = xrc_impl_tree_router_get_value(target, index); // reload value
         }
     }
 
     return 1; // success, min updated
 }
 
-void xrc_impl_reduce_tree_pretty_print(
-    xrc_impl_reduce_tree* tree
+void xrc_impl_tree_router_pretty_print(
+    xrc_impl_tree_router* tree
     )
 {
     for (size_t leaf_index = 0; leaf_index < tree->num_leaves; leaf_index++)
@@ -133,7 +133,7 @@ void xrc_impl_reduce_tree_pretty_print(
         printf(
             "%lu ?= %lu",
             leaf_index,
-            xrc_impl_reduce_tree_get_leaf_value(tree, leaf_index, memory_order_acquire)
+            xrc_impl_tree_router_get_leaf(tree, leaf_index, memory_order_acquire)
             );
 
         size_t index = leaf_index + tree->num_leaves;

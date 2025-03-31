@@ -34,6 +34,7 @@ typedef struct xrc_impl_hazard
 typedef struct xrc_impl_hazard_set
 {
     _Alignas(64) xrc_impl_sequence_atomic release_epoch;
+    _Alignas(64) xrc_impl_sequence_atomic quiescence_epoch;
     _Alignas(64) xrc_impl_hazard          hazards[XRC_PER_THREAD_HAZARD_SET_LENGTH];
     intptr_t                              previous_hazards[XRC_PER_THREAD_HAZARD_SET_LENGTH];
 } xrc_impl_hazard_set;
@@ -95,7 +96,7 @@ static inline xrc_impl_hazard* xrc_impl_hazard_set_allocate_hazard()
 {
     xrc_impl_hazard* hazard = xrc_impl_thread_local_hazard_control.xrc_impl_thread_local_hazard_set_head;
     xrc_impl_thread_local_hazard_control.xrc_impl_thread_local_hazard_set_head = (xrc_impl_hazard*)hazard->pointer.
-        void_pointer;
+                                                                                                           void_pointer;
     return hazard;
 }
 

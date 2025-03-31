@@ -12,12 +12,12 @@
 #include <xrc/impl/atomic_stack.h>
 #include <xrc/impl/decrement_queue.h>
 #include <xrc/impl/decrement_stack.h>
-#include <xrc/impl/reduce_tree.h>
+#include <xrc/impl/tree_router.h>
 #include <xrc/impl/hazard_set.h>
 
 #include <xrc/impl/util/slim_mutex.h>
 
-#include <xrc/impl/reduce_tree.h>
+#include <xrc/impl/tree_router.h>
 
 #define XRC_ALLOCATION_HEADER_ALIGNMENT (alignof(xrc_impl_allocation_header) > alignof(size_t) ? alignof(xrc_impl_allocation_header) : alignof(size_t))
 #define XRC_EXTENDED_SIZE_HEADER_SIZE ((sizeof(size_t) + sizeof(xrc_impl_allocation_header) + (XRC_ALLOCATION_HEADER_ALIGNMENT - 1)) & ~(XRC_ALLOCATION_HEADER_ALIGNMENT - 1))
@@ -69,7 +69,7 @@ TODO: support for 8 byte header with compressed or indexed destructor (no length
 typedef struct xrc_impl_thread_data
 {
     xrc_impl_stack_node                   stack_node; // intrusive atomic stack node used for free list
-    uint64_t                              local_rng_state;
+    uint64_t                              rng_state;
     bool                                  is_collecting; // true if this thread is currently collecting
     _Alignas(64) xrc_impl_decrement_queue decrement_queue; // work queue of recursively generated decrements
     _Alignas(64) xrc_impl_decrement_stack decrement_stack; // stack of non-recursive decrements
@@ -90,12 +90,12 @@ typedef struct xrc_impl_control_data_s
     // xrc_impl_cache_line_padding pad_0; // padding to avoid false sharing
 
     // tree of scan start epochs of the most recently completed scan of each thread data
-    xrc_impl_reduce_tree release_epoch_tree;
-    // xrc_impl_reduce_tree completed_scan_time_tree;
+    xrc_impl_tree_router release_epoch_tree;
+    // xrc_impl_tree_router completed_scan_time_tree;
 
     // tree of scan start epochs for each thread data
-    xrc_impl_reduce_tree scan_claim_tree;
-    // xrc_impl_reduce_tree scan_time_tree;
+    xrc_impl_tree_router scan_claim_tree;
+    // xrc_impl_tree_router scan_time_tree;
 
     // free list of thread data structures
     xrc_impl_atomic_stack free_thread_data;
@@ -155,7 +155,7 @@ typedef struct xrc_impl_allocation_header
 {
     xrc_impl_reference_count     count;
     xrc_impl_allocation_metadata metadata;
-} xrc_impl_allocation_header;
+} xrc_impl_header;
 
 /**
  * Allocation header with dispose function.
@@ -163,7 +163,7 @@ typedef struct xrc_impl_allocation_header
 typedef struct xrc_impl_dispose_header
 {
     xrc_dispose_function       dispose;
-    xrc_impl_allocation_header header;
+    xrc_impl_header header;
 } xrc_impl_dispose_header;
 
 /**
@@ -243,22 +243,22 @@ extern uint_fast64_t xrc_impl_advance_epoch();
  * Gets the last complete scan epoch.
  * Decrements issued before this epoch are eligible for execution.
  */
-extern uint_fast64_t xrc_impl_get_last_complete_scan_epoch();
+extern uint_fast64_t xrc_impl_get_quiescent_epoch();
 
 /**
  * Internal function. Gets the allocation header from a payload pointer.
  */
-static inline xrc_impl_allocation_header* xrc_impl_allocation_get_header(
+static inline xrc_impl_header* xrc_impl_get_header(
     void* payload
     )
 {
-    return (xrc_impl_allocation_header*)((char*)payload - sizeof(xrc_impl_allocation_header));
+    return (xrc_impl_header*)((char*)payload - sizeof(xrc_impl_header));
 }
 
 /**
  * Internal function. Gets the xrc_impl_dispose_header from a payload pointer.
  */
-static inline xrc_impl_dispose_header* xrc_impl_allocation_get_dispose_header(
+static inline xrc_impl_dispose_header* xrc_impl_get_dispose_function(
     void* payload
     )
 {
@@ -268,7 +268,7 @@ static inline xrc_impl_dispose_header* xrc_impl_allocation_get_dispose_header(
 /**
  * Internal function. Gets the xrc_impl_extended_header from a payload pointer.
  */
-static inline xrc_impl_extended_header* xrc_impl_allocation_get_extended_header(
+static inline xrc_impl_extended_header* xrc_impl_get_extended_header(
     void* payload
     )
 {
@@ -298,8 +298,8 @@ static inline xrc_allocation_requirements xrc_impl_compute_allocation_requiremen
     if (dispose == NULL)
     {
         requirements.length_code = XRC_LENGTH_CODE_NO_DISPOSE_NO_EXTENDED;
-        header_size              = sizeof(xrc_impl_allocation_header);
-        header_alignment         = alignof(xrc_impl_allocation_header);
+        header_size              = sizeof(xrc_impl_header);
+        header_alignment         = alignof(xrc_impl_header);
     }
     else if (length < XRC_LENGTH_CODE_MAX_SHORT_LENGTH)
     {
@@ -333,13 +333,13 @@ static inline void xrc_initialize_header(
 {
     if (requirements.length_code != XRC_LENGTH_CODE_NO_DISPOSE_NO_EXTENDED)
     {
-        xrc_impl_allocation_get_dispose_header(payload)->dispose = dispose;
+        xrc_impl_get_dispose_function(payload)->dispose = dispose;
         if (requirements.length_code == XRC_LENGTH_CODE_DISPOSE_EXTENDED)
-            xrc_impl_allocation_get_extended_header(payload)->length = length;
+            xrc_impl_get_extended_header(payload)->length = length;
     }
 
     // initialize header
-    xrc_impl_allocation_header* header = xrc_impl_allocation_get_header(payload);
+    xrc_impl_header* header = xrc_impl_get_header(payload);
     atomic_store_explicit(&header->count, 0, memory_order_relaxed);
     header->metadata.length_code = requirements.length_code;
     header->metadata.flags       = flags;
@@ -436,30 +436,28 @@ static inline void xrc_impl_buffer_decrement(
             // 0,
             pointer
             ))
-        {
             xrc_help_collect();
-        }
     }
 }
 
 /**
  * Internal function. Gets the allocation header from a managed memory payload pointer.
  */
-static inline xrc_impl_allocation_header* xrc_impl_get_allocation_header(
+static inline xrc_impl_header* xrc_impl_get_allocation_header(
     void* payload
     )
 {
-    return (xrc_impl_allocation_header*)((char*)payload - sizeof(xrc_impl_allocation_header));
+    return (xrc_impl_header*)((char*)payload - sizeof(xrc_impl_header));
 }
 
 /**
  * Internal function. Gets the xrc_impl_allocation_header from a managed memory payload pointer.
  */
 static inline void* xrc_impl_get_allocation_payload(
-    xrc_impl_allocation_header* header
+    xrc_impl_header* header
     )
 {
-    return (void*)((char*)header + sizeof(xrc_impl_allocation_header));
+    return (void*)((char*)header + sizeof(xrc_impl_header));
 }
 
 /**
@@ -472,6 +470,6 @@ static inline void xrc_impl_increment_reference_count(
     if (pointer == NULL)
         return;
 
-    xrc_impl_allocation_header* header = xrc_impl_get_allocation_header(pointer);
+    xrc_impl_header* header = xrc_impl_get_allocation_header(pointer);
     atomic_fetch_add_explicit(&header->count, 1, memory_order_relaxed);
 }
