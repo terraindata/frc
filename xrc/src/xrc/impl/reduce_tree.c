@@ -8,7 +8,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "mutex_util.h"
 
 static inline xrc_impl_sequence_atomic* xrc_impl_reduce_tree_value(
     xrc_impl_reduce_tree* target,

@@ -51,15 +51,9 @@ static inline void xrc_impl_decrement_stack_push(
     void*                     element
     )
 {
-    // read head
-    size_t head = atomic_load_explicit(&target->head_index, memory_order_relaxed);
-
-    // store element in ring
-    size_t pos          = head % XRC_PER_THREAD_DECREMENT_STACK_LENGTH;
-    target->buffer[pos] = element;
-
-    // update head
-    atomic_store_explicit(&target->head_index, head + 1, memory_order_relaxed);
+    size_t head = atomic_load_explicit(&target->head_index, memory_order_relaxed); // read head
+    target->buffer[head % XRC_PER_THREAD_DECREMENT_STACK_LENGTH] = element; // store element
+    atomic_store_explicit(&target->head_index, head + 1, memory_order_relaxed); // update head
 }
 
 /**
@@ -79,13 +73,8 @@ static inline int xrc_impl_decrement_stack_pop(
         return -1; // failure: empty
 
     head -= 1;
-
-    // read element
-    size_t pos = head % XRC_PER_THREAD_DECREMENT_STACK_LENGTH;
-    *element   = target->buffer[pos];
-
-    // update head
-    atomic_store_explicit(&target->head_index, head, memory_order_release);
+    *element = target->buffer[head % XRC_PER_THREAD_DECREMENT_STACK_LENGTH]; // read element
+    atomic_store_explicit(&target->head_index, head, memory_order_release); // update head
     return 0; // success
 }
 
@@ -103,18 +92,16 @@ static inline void xrc_impl_decrement_stack_enqueue(
     for (;;)
     {
         size_t tail = atomic_load_explicit(&target->tail_index, memory_order_relaxed);
-        if (tail == 0)
+        if (tail == 0) // special case: tail is at zero, so push instead of underflowing tail
         {
-            // special case: tail is at zero, so push instead of underflowing tail
             xrc_impl_decrement_stack_push(target, element);
             break;
         }
 
         // We'll place the new item at new_tail
         // Because we want to expand from the tail side => old_tail - 1
-        size_t new_tail = tail - 1;
-        size_t pos      = new_tail % XRC_PER_THREAD_DECREMENT_STACK_LENGTH;
-
+        size_t new_tail     = tail - 1;
+        size_t pos          = new_tail % XRC_PER_THREAD_DECREMENT_STACK_LENGTH;
         target->buffer[pos] = element;
 
         // Attempt CAS tail from old_tail => new_tail
@@ -125,12 +112,7 @@ static inline void xrc_impl_decrement_stack_enqueue(
             memory_order_acq_rel,
             memory_order_acquire
             ))
-        {
-            // success => element is enqueued at tail
-            break;
-        }
-
-        // retry...
+            break; // success => element is enqueued at tail
     }
 }
 
@@ -154,7 +136,6 @@ static inline int xrc_impl_decrement_stack_steal(
     if (head <= tail)
         return -1; // failure: empty
 
-
     size_t pos = tail % XRC_PER_THREAD_DECREMENT_STACK_LENGTH;
     *element   = target->buffer[pos];
 
@@ -166,13 +147,8 @@ static inline int xrc_impl_decrement_stack_steal(
         memory_order_acq_rel,
         memory_order_acquire
         ))
-    {
-        // success => we stole element
-        return 0;
-    }
-
-    // failure => someone else stole element
-    return -2;
+        return 0; // success => we stole element
+    return -2; // failure => someone else stole element
 }
 
 /**

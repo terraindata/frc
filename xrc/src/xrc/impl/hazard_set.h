@@ -24,7 +24,6 @@ typedef struct xrc_impl_hazard
         atomic_intptr_t atomic_pointer;
     } pointer;
 
-    // size_t pad[2];
     size_t thread_local_reference_count;
 } xrc_impl_hazard;
 
@@ -34,11 +33,9 @@ typedef struct xrc_impl_hazard
  */
 typedef struct xrc_impl_hazard_set
 {
-    // xrc_impl_hazard*            free_hazards[XRC_PER_THREAD_HAZARD_SET_LENGTH];
     _Alignas(64) xrc_impl_sequence_atomic release_epoch;
     _Alignas(64) xrc_impl_hazard          hazards[XRC_PER_THREAD_HAZARD_SET_LENGTH];
-    // xrc_impl_cache_line_padding pad_0; // cache line padding
-    intptr_t previous_hazards[XRC_PER_THREAD_HAZARD_SET_LENGTH];
+    intptr_t                              previous_hazards[XRC_PER_THREAD_HAZARD_SET_LENGTH];
 } xrc_impl_hazard_set;
 
 /**
@@ -47,17 +44,11 @@ typedef struct xrc_impl_hazard_set
 
 typedef struct xrc_impl_thread_local_hazard_control_s
 {
-    // size_t                    xrc_impl_thread_local_quiesce_count;
     xrc_impl_hazard*          xrc_impl_thread_local_hazard_set_head;
     xrc_impl_sequence_atomic* xrc_impl_thread_local_hazard_set_release_epoch;
 } xrc_impl_thread_local_hazard_control_s;
 
 extern thread_local xrc_impl_thread_local_hazard_control_s xrc_impl_thread_local_hazard_control;
-
-// extern thread_local xrc_impl_hazard*          xrc_impl_thread_local_hazard_set_head;
-// extern thread_local size_t                    xrc_impl_thread_local_quiesce_count;
-// extern thread_local xrc_impl_sequence_atomic* xrc_impl_thread_local_hazard_set_release_epoch;
-
 
 /**
  * Initializes a hazard set.
@@ -122,38 +113,12 @@ static inline xrc_impl_hazard* xrc_impl_hazard_set_release_allocate(
 
 static inline uint_fast64_t xrc_impl_get_epoch();
 
-// static void xrc_impl_hazard_quiesce_to_epoch(
-//     xrc_impl_sequence epoch
-//     )
-// {
-//     atomic_store_explicit(
-//         xrc_impl_thread_local_hazard_control.xrc_impl_thread_local_hazard_set_release_epoch,
-//         epoch,
-//         memory_order_release
-//         );
-//     xrc_impl_thread_local_hazard_control.xrc_impl_thread_local_quiesce_count = XRC_HAZARD_SET_QUIESCENCE_THRESHOLD;
-// }
-
-// static void xrc_impl_hazard_quiesce()
-// {
-//     xrc_impl_hazard_quiesce_to_epoch(xrc_impl_get_epoch());
-// }
-//
-// static inline void xrc_impl_hazard_quiesce_tick(
-//     )
-// {
-//     if (--xrc_impl_thread_local_hazard_control.xrc_impl_thread_local_quiesce_count == 0)
-//         xrc_impl_hazard_quiesce();
-// }
-
 static inline void xrc_impl_hazard_publish(
     xrc_impl_hazard* hazard,
     void*            source
     )
 {
     atomic_store_explicit(&hazard->pointer.atomic_pointer, (intptr_t)source, memory_order_release);
-    // hazard->pointer = source;
-    // xrc_impl_hazard_quiesce_tick(hazard);
 }
 
 

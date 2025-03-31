@@ -8,7 +8,7 @@
 #include <time.h>
 
 #include <xrc/thread_data.h>
-#include <xrc/impl/splitmix.h>
+#include <xrc/impl/util/splitmix.h>
 
 
 thread_local xrc_impl_thread_local_hazard_control_s xrc_impl_thread_local_hazard_control;

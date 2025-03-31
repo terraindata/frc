@@ -17,8 +17,8 @@ typedef struct xrc_impl_stack_node
 
 typedef struct xrc_impl_stack_ptr
 {
-    struct xrc_impl_stack_node* ptr;
-    uint64_t                    counter;
+    xrc_impl_stack_node* ptr;
+    uint64_t             counter;
 } xrc_impl_stack_ptr;
 
 typedef

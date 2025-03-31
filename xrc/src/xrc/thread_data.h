@@ -15,7 +15,7 @@
 #include <xrc/impl/reduce_tree.h>
 #include <xrc/impl/hazard_set.h>
 
-#include <xrc/impl/slim_mutex.h>
+#include <xrc/impl/util/slim_mutex.h>
 
 #include <xrc/impl/reduce_tree.h>
 

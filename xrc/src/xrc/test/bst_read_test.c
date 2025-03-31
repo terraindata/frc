@@ -28,7 +28,7 @@
 // If xrc depends on pthreads, you may still need linking with -lpthread.
 // But we won't directly include <pthread.h> here; we're using C17 <threads.h>.
 
-#include <xrc/impl/bind_thread_to_core.h>
+#include <xrc/impl/util/bind_thread_to_core.h>
 
 #include "bst.h"
 
