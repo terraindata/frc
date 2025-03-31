@@ -15,7 +15,7 @@
 #include <xrc/impl/tree_router.h>
 #include <xrc/impl/hazard_set.h>
 
-#include <xrc/impl/util/slim_mutex.h>
+#include <xrc/util/slim_mutex.h>
 
 #include <xrc/impl/tree_router.h>
 

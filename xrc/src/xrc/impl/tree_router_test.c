@@ -9,6 +9,8 @@
 
 #include "tree_router.h"
 
+#include <stdio.h>
+
 #define TEST_ASSERT(expr, msg) \
 do { if (!(expr)) { fprintf(stderr, "Test failure in %s (line %d): %s\n", __FILE__, __LINE__, msg); exit(1);} } while(0)
 #define TEST_CASE(name) static void name()
@@ -33,7 +35,7 @@ void xrc_impl_tree_router_pretty_print_with_leaf_values_array(
             "leaf_values[%zu] = %lu ?= %lu",
             leaf_index,
             leaf_values[leaf_index],
-            xrc_impl_tree_router_get_leaf_value(tree, leaf_index, memory_order_acquire)
+            xrc_impl_tree_router_get_value(tree, leaf_index)
             );
 
         size_t index = leaf_index + tree->num_leaves;
@@ -73,8 +75,8 @@ void test_tree_router_min_concurrency_single_threaded()
         uint_fast64_t value      = min_value + (rand() % (max_value - min_value));
 
         leaf_values[leaf_index] = value;
-        xrc_impl_tree_router_set_leaf_value(&tree, leaf_index, value);
-        // xrc_impl_tree_router_pretty_print(&tree, leaf_values);
+        xrc_impl_tree_router_set_value(&tree, leaf_index, value);
+        // xrc_impl_tree_router_pretty_print(&tree);
 
         if (rand() % 8 == 0)
         {

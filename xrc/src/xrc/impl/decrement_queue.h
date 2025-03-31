@@ -9,7 +9,7 @@
 #include <stdbool.h>
 #include <xrc/settings.h>
 
-#include <xrc/impl/util/util.h>
+#include <xrc/util/util.h>
 
 /**
  * A single-threaded FIFO queue for buffering non-recursively generated deferred decrements.

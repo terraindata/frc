@@ -7,24 +7,8 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <xrc/util/util.h>
 
-
-static inline xrc_impl_sequence_atomic* xrc_impl_tree_router_value(
-    xrc_impl_tree_router* target,
-    size_t                index
-    )
-{
-    return &(target->nodes[index].value);
-}
-
-
-static inline xrc_impl_sequence xrc_impl_tree_router_get_value(
-    xrc_impl_tree_router* target,
-    size_t                index
-    )
-{
-    return atomic_load_explicit(&(target->nodes[index].value), memory_order_acquire);
-}
 
 void xrc_impl_tree_router_init(
     xrc_impl_tree_router* tree,
@@ -62,16 +46,16 @@ bool xrc_impl_tree_router_find_index_less_than_or_equal_to_value(
     )
 {
     size_t index = 1;
-    if (value < xrc_impl_tree_router_get_value(target, index))
+    if (value < xrc_impl_tree_router_node_value(target, index))
         return false; // no match
 
     for (size_t depth = 0; index < target->num_leaves; depth++)
     {
         index = (index << 1) + ((tiebreaker >> depth) & 1);
-        if (xrc_impl_tree_router_get_value(target, index) > value)
+        if (xrc_impl_tree_router_node_value(target, index) > value)
         {
             index ^= 1;
-            if (xrc_impl_tree_router_get_value(target, index) > value)
+            if (xrc_impl_tree_router_node_value(target, index) > value)
                 return false; // no match
         }
     }
@@ -80,7 +64,7 @@ bool xrc_impl_tree_router_find_index_less_than_or_equal_to_value(
     return true;
 }
 
-int xrc_impl_tree_router_set_leaf(
+int xrc_impl_tree_router_set_value(
     xrc_impl_tree_router* target,
     size_t                leaf_index,
     xrc_impl_sequence     value
@@ -88,19 +72,29 @@ int xrc_impl_tree_router_set_leaf(
 {
     size_t index = leaf_index + target->num_leaves;
     atomic_store_explicit(
-        xrc_impl_tree_router_value(target, index),
+        xrc_impl_tree_router_node_ptr(target, index),
         value,
         memory_order_release
         );
 
     for (; index > 1; index >>= 1)
     {
-        xrc_impl_sequence parent_value = xrc_impl_tree_router_get_value(target, index >> 1);
+        xrc_impl_sequence parent_value = xrc_impl_tree_router_node_value(target, index >> 1);
         bool              updated      = false;
         while (true)
         {
-            xrc_impl_sequence sibling_value         = xrc_impl_tree_router_get_value(target, index ^ 1);
-            xrc_impl_sequence computed_parent_value = (value <= sibling_value) ? value : sibling_value;
+            xrc_impl_sequence sibling_value         = xrc_impl_tree_router_node_value(target, index ^ 1);
+            xrc_impl_sequence computed_parent_value = MIN(value, sibling_value);
+            //
+            // printf(
+            //     "index %lu, value %lu, sibling_value %lu, parent_value %lu, computed_parent_value %lu updated %i\n",
+            //     index,
+            //     value,
+            //     sibling_value,
+            //     parent_value,
+            //     computed_parent_value,
+            //     updated
+            //     );
 
             if (computed_parent_value == parent_value)
             {
@@ -111,13 +105,16 @@ int xrc_impl_tree_router_set_leaf(
             }
 
             updated = atomic_compare_exchange_strong_explicit(
-                xrc_impl_tree_router_value(target, index >> 1),
+                xrc_impl_tree_router_node_ptr(target, index >> 1),
                 &parent_value,
                 computed_parent_value,
                 memory_order_acq_rel,
                 memory_order_acquire
                 );
-            value = xrc_impl_tree_router_get_value(target, index); // reload value
+            if (updated)
+                parent_value = computed_parent_value;
+
+            value = xrc_impl_tree_router_node_value(target, index); // reload value
         }
     }
 
@@ -133,7 +130,7 @@ void xrc_impl_tree_router_pretty_print(
         printf(
             "%lu ?= %lu",
             leaf_index,
-            xrc_impl_tree_router_get_leaf(tree, leaf_index, memory_order_acquire)
+            xrc_impl_tree_router_get_value(tree, leaf_index)
             );
 
         size_t index = leaf_index + tree->num_leaves;
@@ -144,7 +141,7 @@ void xrc_impl_tree_router_pretty_print(
             index >>= 1;
             printf(
                 "\t\t\t%lu [%lu]",
-                atomic_load_explicit(&tree->nodes[index].value, memory_order_acquire),
+                xrc_impl_tree_router_node_value(tree, index),
                 index
                 );
         }

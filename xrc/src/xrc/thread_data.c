@@ -8,15 +8,14 @@
 #include <time.h>
 
 #include <xrc/thread_data.h>
-#include <xrc/impl/util/splitmix.h>
-#include <xrc/impl/util/util.h>
+#include <xrc/util/splitmix.h>
+#include <xrc/util/util.h>
 
 
 thread_local xrc_impl_thread_local_hazard_control_s xrc_impl_thread_local_hazard_control;
 thread_local xrc_impl_thread_data*                  xrc_impl_thread_local_thread_data;
 
 _Alignas(128) xrc_impl_control_data_s xrc_impl_control_data;
-
 
 void xrc_initialize()
 {
@@ -75,12 +74,12 @@ int xrc_attach_thread()
     xrc_impl_decrement_queue_initialize(&thread_data->decrement_queue);
     xrc_impl_decrement_stack_initialize(&thread_data->decrement_stack);
 
-    xrc_impl_tree_router_set_leaf(
+    xrc_impl_tree_router_set_value(
         &xrc_impl_control_data.release_epoch_tree,
         thread_data->index,
         epoch
         );
-    xrc_impl_tree_router_set_leaf(
+    xrc_impl_tree_router_set_value(
         &xrc_impl_control_data.scan_claim_tree,
         thread_data->index,
         epoch
@@ -95,8 +94,8 @@ void xrc_detach_thread()
     xrc_impl_thread_data* target = xrc_impl_thread_local_thread_data;
     xrc_impl_hazard_set_clear(&target->hazard_set);
     // atomic_store_explicit(&target->is_alive, 0, memory_order_release);
-    xrc_impl_tree_router_set_leaf(&xrc_impl_control_data.release_epoch_tree, target->index, UINT64_MAX);
-    xrc_impl_tree_router_set_leaf(&xrc_impl_control_data.scan_claim_tree, target->index, UINT64_MAX);
+    xrc_impl_tree_router_set_value(&xrc_impl_control_data.release_epoch_tree, target->index, UINT64_MAX);
+    xrc_impl_tree_router_set_value(&xrc_impl_control_data.scan_claim_tree, target->index, UINT64_MAX);
 
     // process remaining decrements
     xrc_impl_advance_epoch(); // prevents scan of this thread from blocking further decrement processing
@@ -150,7 +149,7 @@ static void xrc_impl_execute_decrement(
 }
 
 
-static bool xrc_impl_hazard_set_free_hazard(
+static bool xrc_impl_hazard_set_protect_hazard(
     xrc_impl_hazard_set* hazard_set,
     int64_t              index
     )
@@ -189,14 +188,14 @@ static xrc_impl_sequence xrc_impl_thread_data_scan(
     int64_t              busy_hazard      = -1;
     for (int64_t i = 0; i < XRC_PER_THREAD_HAZARD_SET_LENGTH; i++)
     {
-        if (xrc_impl_hazard_set_free_hazard(hazard_set, i))
+        if (xrc_impl_hazard_set_protect_hazard(hazard_set, i))
             continue;
 
         // this hazard is busy: we skip it for now and revisit it after scanning the rest of the hazards
         // only one hazard can be busy at a time, so any previous hazard must have been released since we read it
         // so it is valid to protect it up to this release epoch (if it is busy again, it is ok to skip it too)
         if (busy_hazard < 0)
-            xrc_impl_hazard_set_free_hazard(hazard_set, busy_hazard);
+            xrc_impl_hazard_set_protect_hazard(hazard_set, busy_hazard);
         busy_hazard = i;
     }
 
@@ -209,7 +208,7 @@ static xrc_impl_sequence xrc_impl_thread_data_scan(
         return MIN(quiescence_epoch, scan_start_epoch);
 
     //as a last resort, spin on the hazard until it is released
-    for (size_t i = 0; xrc_impl_hazard_set_free_hazard(hazard_set, busy_hazard); i++)
+    for (size_t i = 0; xrc_impl_hazard_set_protect_hazard(hazard_set, busy_hazard); i++)
         if (i > XRC_HAZARD_SPIN_LIMIT)
             thrd_yield();
 
@@ -222,10 +221,9 @@ static int xrc_impl_is_hazard_set_eligible_for_scanning(
     size_t            index
     )
 {
-    return xrc_impl_tree_router_get_leaf(
+    return xrc_impl_tree_router_get_value(
                &xrc_impl_control_data.scan_claim_tree,
-               index,
-               memory_order_acquire
+               index
                ) <= oldest_decrement_epoch;
 }
 
@@ -266,7 +264,7 @@ static int xrc_impl_steal_or_scan(
 
     xrc_impl_sequence start_epoch     = xrc_impl_get_epoch();
     xrc_impl_sequence last_scan_epoch =
-        xrc_impl_tree_router_get_leaf(&xrc_impl_control_data.release_epoch_tree, target->index, memory_order_relaxed);
+        xrc_impl_tree_router_get_value(&xrc_impl_control_data.release_epoch_tree, target->index);
 
     // advance epoch if last scan epoch is the same as this epoch, or if we need to advance the epoch
     // to enable our oldest decrement to execute, or if we are the "chosen thread" to advance the epoch
@@ -280,16 +278,16 @@ static int xrc_impl_steal_or_scan(
     // ok we acquired the lock.
 
     // mark hazards locked in the tree
-    xrc_impl_tree_router_set_leaf(&xrc_impl_control_data.scan_claim_tree, target->index, UINT64_MAX);
+    xrc_impl_tree_router_set_value(&xrc_impl_control_data.scan_claim_tree, target->index, UINT64_MAX);
 
     // scan the thread's hazard pointers
     xrc_impl_sequence release_epoch = xrc_impl_thread_data_scan(target, oldest_decrement_epoch);
 
     // now update the min completed scan time
-    xrc_impl_tree_router_set_leaf(&xrc_impl_control_data.release_epoch_tree, target->index, release_epoch);
+    xrc_impl_tree_router_set_value(&xrc_impl_control_data.release_epoch_tree, target->index, release_epoch);
 
     // mark the thread data as unlocked
-    xrc_impl_tree_router_set_leaf(&xrc_impl_control_data.scan_claim_tree, target->index, release_epoch);
+    xrc_impl_tree_router_set_value(&xrc_impl_control_data.scan_claim_tree, target->index, release_epoch);
 
     xrc_impl_slim_mutex_unlock(&target->scan_mutex); // unlock the thread data
     return 0; // hazards scanned: success

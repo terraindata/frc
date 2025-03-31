@@ -48,7 +48,7 @@ static void* thread_func(
 
     for (int i = 0; i < INCREMENTS_PER_THREAD; i++)
     {
-        int err = xrc_impl_slim_mutex_lock(&g_mutex, true);
+        int err = xrc_impl_slim_mutex_lock(&g_mutex, false);
         if (err != 0)
         {
             fprintf(stderr, "ERROR: xrc_impl_slim_mutex_lock failed in worker, err=%d\n", err);
@@ -72,7 +72,7 @@ static void* thread_func(
      * We'll just do a small demonstration and not treat EBUSY as an error.
      */
     {
-        int err = xrc_impl_slim_mutex_try_lock(&g_mutex, true);
+        int err = xrc_impl_slim_mutex_lock(&g_mutex, true);
         if (err == 0)
         {
             /* We got the lock, let's unlock it. */

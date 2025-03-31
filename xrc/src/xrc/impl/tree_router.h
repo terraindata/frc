@@ -46,15 +46,6 @@ extern void xrc_impl_tree_router_destroy(
     xrc_impl_tree_router* tree
     );
 
-/**
- * Gets the minimum value in the tree.
- */
-static inline xrc_impl_sequence xrc_impl_tree_router_get_min(
-    xrc_impl_tree_router* tree
-    )
-{
-    return atomic_load_explicit(&tree->nodes[1].value, memory_order_acquire);
-}
 
 extern bool xrc_impl_tree_router_find_index_less_than_or_equal_to_value(
     xrc_impl_tree_router* target,
@@ -63,25 +54,47 @@ extern bool xrc_impl_tree_router_find_index_less_than_or_equal_to_value(
     size_t*               leaf_index
     );
 
-extern int xrc_impl_tree_router_set_leaf(
+extern int xrc_impl_tree_router_set_value(
     xrc_impl_tree_router* target,
     size_t                leaf_index,
     xrc_impl_sequence     value
     );
 
+static inline xrc_impl_sequence_atomic* xrc_impl_tree_router_node_ptr(
+    xrc_impl_tree_router* target,
+    size_t                index
+    )
+{
+    return &(target->nodes[index].value);
+}
+
+static inline xrc_impl_sequence xrc_impl_tree_router_node_value(
+    xrc_impl_tree_router* target,
+    size_t                index
+    )
+{
+    return atomic_load_explicit(xrc_impl_tree_router_node_ptr(target, index), memory_order_acquire);
+}
+
+/**
+ * Gets the minimum value in the tree.
+ */
+static inline xrc_impl_sequence xrc_impl_tree_router_get_min(
+    xrc_impl_tree_router* tree
+    )
+{
+    return xrc_impl_tree_router_node_value(tree, 1);
+}
+
 /**
  * Gets the value of a leaf node.
  */
-static inline xrc_impl_sequence xrc_impl_tree_router_get_leaf(
+static inline xrc_impl_sequence xrc_impl_tree_router_get_value(
     xrc_impl_tree_router* target,
-    size_t                leaf_index,
-    memory_order          order
+    size_t                leaf_index
     )
 {
-    return atomic_load_explicit(
-        &target->nodes[leaf_index + target->num_leaves].value,
-        order
-        );
+    return xrc_impl_tree_router_node_value(target, leaf_index + target->num_leaves);
 }
 
 extern void xrc_impl_tree_router_pretty_print(

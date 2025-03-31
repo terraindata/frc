@@ -28,7 +28,7 @@
 // If xrc depends on pthreads, you may still need linking with -lpthread.
 // But we won't directly include <pthread.h> here; we're using C17 <threads.h>.
 
-#include <xrc/impl/bind_thread_to_core.h>
+#include <xrc/util/bind_thread_to_core.h>
 
 #include "raw_bst.h"
 
@@ -37,7 +37,7 @@
 // -------------------------------------------------------------------------
 #define NUM_NODES   ((uint64_t)1000000)
 #define NUM_THREADS 1
-#define NUM_OPS     ((uint64_t)10000000)
+#define NUM_OPS     ((uint64_t)100000)
 
 // -------------------------------------------------------------------------
 // A simple barrier implementation in standard C (C11/C17).

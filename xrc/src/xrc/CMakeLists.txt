@@ -18,9 +18,9 @@ endif ()
 
 # Set compiler optimization flags
 if (CMAKE_BUILD_TYPE STREQUAL "Release")
-    set(C_COMPILER_OPTIONS -Ofast -march=native -mtune=native -ftree-vectorize -fvisibility=hidden -fno-semantic-interposition -Wl,--verbose)
-    set(C_LINKER_OPTIONS -Ofast -march=native -mtune=native -ftree-vectorize -fvisibility=hidden -fno-semantic-interposition -Wl,--verbose)
-    set(C_ASM_FLAGS -Ofast -march=native -mtune=native -ftree-vectorize -fvisibility=hidden -fno-semantic-interposition)
+    set(C_COMPILER_OPTIONS -g -Ofast -march=native -mtune=native -ftree-vectorize -fvisibility=hidden -fno-semantic-interposition -Wl,--verbose)
+    set(C_LINKER_OPTIONS -g -Ofast -march=native -mtune=native -ftree-vectorize -fvisibility=hidden -fno-semantic-interposition -Wl,--verbose)
+    set(C_ASM_FLAGS -g -Ofast -march=native -mtune=native -ftree-vectorize -fvisibility=hidden -fno-semantic-interposition)
 elseif (CMAKE_BUILD_TYPE STREQUAL "Debug")
     set(C_COMPILER_OPTIONS -g -O0 -march=native -mtune=native -ftree-vectorize -fvisibility=hidden -Wl,--verbose)
     set(C_LINKER_OPTIONS -g -O0 -march=native -mtune=native -ftree-vectorize -fvisibility=hidden -Wl,--verbose)

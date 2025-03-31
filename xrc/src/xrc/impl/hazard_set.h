@@ -82,7 +82,6 @@ static inline void xrc_impl_hazard_release(
 {
     // if (target == NULL)
     //     return;
-
     if (target->thread_local_reference_count == 0)
         xrc_impl_hazard_set_free_hazard(target);
     else
@@ -128,18 +127,12 @@ static inline void* xrc_impl_hazard_protect_load(
     atomic_intptr_t* source
     )
 {
-    atomic_store_explicit(
-        source,
-        XRC_LOCK_SIGNAL,
-        memory_order_relaxed
-        );
+    hazard->pointer.void_pointer = (void*)XRC_LOCK_SIGNAL;
     atomic_thread_fence(memory_order_acq_rel);
-    void* protectee = (void*)atomic_load_explicit(
-        source,
-        memory_order_relaxed
-        );
-    atomic_store_explicit(&hazard->pointer.atomic_pointer, (intptr_t)protectee, memory_order_relaxed);
-    xrc_impl_hazard_publish(hazard, protectee);
+    void* protectee = (void*)atomic_load_explicit(source, memory_order_relaxed);
+    // atomic_store_explicit(&hazard->pointer.atomic_pointer, (intptr_t)protectee, memory_order_relaxed);
+    hazard->pointer.void_pointer = protectee;
+    // xrc_impl_hazard_publish(hazard, protectee);
     return protectee;
 }
 
