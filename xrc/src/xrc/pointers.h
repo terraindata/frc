@@ -272,10 +272,10 @@ static inline void* xrc_sptr_get_and_increment_atomic(
     )
 {
     xrc_impl_hazard* hazard         = xrc_impl_thread_local_hazard_control.xrc_impl_thread_local_hazard_set_head;
-    void*            next           = hazard->pointer; // reserve next pointer
+    void*            next           = hazard->pointer.void_pointer; // reserve next pointer
     void*            source_pointer = xrc_impl_hazard_protect_load(hazard, &target->atomic_pointer);
     xrc_impl_increment_reference_count(source_pointer);
-    hazard->pointer = next; // restore next pointer
+    hazard->pointer.void_pointer = next; // restore next pointer
     return source_pointer;
 }
 
@@ -449,7 +449,11 @@ static inline void xrc_sptr_assign_vptr_atomic_without_increment(
     void*     source
     )
 {
-    void* previous_value = (void*)atomic_exchange_explicit(&target->atomic_pointer, (intptr_t)source, memory_order_acq_rel);
+    void* previous_value = (void*)atomic_exchange_explicit(
+        &target->atomic_pointer,
+        (intptr_t)source,
+        memory_order_acq_rel
+        );
     xrc_impl_buffer_decrement(previous_value);
 }
 

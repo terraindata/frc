@@ -32,6 +32,7 @@
 
 #include "slim_mutex.h"
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "mutex_util.h"
@@ -59,19 +60,6 @@ int xrc_impl_slim_mutex_init(
     )
 {
     atomic_init(&mutex->state, 0);
-
-    // #if defined(__APPLE__)
-    //     int ret = pthread_mutex_init(&mutex->internal_mutex, NULL);
-    //     if (ret != 0) {
-    //         return ret;
-    //     }
-    //     ret = pthread_cond_init(&mutex->internal_cond, NULL);
-    //     if (ret != 0) {
-    //         /* Attempt to clean up mutex if cond init fails. */
-    //         pthread_mutex_destroy(&mutex->internal_mutex);
-    //         return ret;
-    //     }
-    // #endif
     return 0; /* success */
 }
 
@@ -83,24 +71,30 @@ int xrc_impl_slim_mutex_destroy(
     xrc_impl_slim_mutex* mutex
     )
 {
-    // #if defined(__APPLE__)
-    //     int ret = 0;
-    //     ret = pthread_cond_destroy(&mutex->internal_cond);
-    //     if (ret != 0) {
-    //         /* We could still attempt to destroy the mutex.
-    //            But if the cond_destroy fails with EBUSY,
-    //            it means someone is still waiting.
-    //          */
-    //     }
-    //     int ret2 = pthread_mutex_destroy(&mutex->internal_mutex);
-    //     if (ret == 0) {
-    //         ret = ret2;
-    //     }
-    //     return ret;
-    // #else
     (void)mutex;
     return 0;
-    // #endif
+}
+
+
+/*
+ *   - If state == 0, set to 1. Return 0 on success, EBUSY if locked.
+ */
+int xrc_impl_slim_mutex_try_lock(
+    xrc_impl_slim_mutex* mutex
+    )
+{
+    uint_fast64_t expected = 0;
+    if (atomic_compare_exchange_strong_explicit(
+        &mutex->state,
+        &expected,
+        1,
+        memory_order_acq_rel,
+        memory_order_acquire
+        ))
+    {
+        return 0; /* success */
+    }
+    return -1; /* locked (or spurious fail) */
 }
 
 /*
@@ -110,7 +104,8 @@ int xrc_impl_slim_mutex_destroy(
  *                re-check, etc.
  */
 int xrc_impl_slim_mutex_lock(
-    xrc_impl_slim_mutex* mutex
+    xrc_impl_slim_mutex* mutex,
+    bool                 try_lock
     )
 {
     uint_fast64_t current_state = 0;
@@ -126,6 +121,9 @@ int xrc_impl_slim_mutex_lock(
         /* Acquired lock with no contention */
         return 0;
     }
+
+    if (try_lock)
+        return -1; /* locked (or spurious fail) */
 
     /* Slow path */
     for (;;)
@@ -200,25 +198,4 @@ int xrc_impl_slim_mutex_unlock(
 
     /* If old_state == 1, we just became 0 => no wake. */
     return 0;
-}
-
-/*
- *   - If state == 0, set to 1. Return 0 on success, EBUSY if locked.
- */
-int xrc_impl_slim_mutex_try_lock(
-    xrc_impl_slim_mutex* mutex
-    )
-{
-    uint_fast64_t expected = 0;
-    if (atomic_compare_exchange_strong_explicit(
-        &mutex->state,
-        &expected,
-        1,
-        memory_order_acq_rel,
-        memory_order_acquire
-        ))
-    {
-        return 0; /* success */
-    }
-    return -1; /* locked (or spurious fail) */
 }

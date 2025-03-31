@@ -6,6 +6,7 @@
 
 
 #include <stdatomic.h>
+#include <stdbool.h>
 
 /*
  * xrc_impl_slim_mutex:
@@ -27,13 +28,10 @@ int xrc_impl_slim_mutex_destroy(
     );
 
 int xrc_impl_slim_mutex_lock(
-    xrc_impl_slim_mutex* mutex
+    xrc_impl_slim_mutex* mutex,
+    bool                 try_lock
     );
 
 int xrc_impl_slim_mutex_unlock(
-    xrc_impl_slim_mutex* mutex
-    );
-
-int xrc_impl_slim_mutex_try_lock(
     xrc_impl_slim_mutex* mutex
     );

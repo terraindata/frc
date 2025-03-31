@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdalign.h>
+#include <limits.h>
 
 #include <xrc/settings.h>
 #include <xrc/impl/atomic_stack.h>
@@ -16,7 +17,7 @@
 
 #include <xrc/impl/slim_mutex.h>
 
-#include <xrc/impl/static_reduce_tree.h>
+#include <xrc/impl/reduce_tree.h>
 
 #define XRC_ALLOCATION_HEADER_ALIGNMENT (alignof(xrc_impl_allocation_header) > alignof(size_t) ? alignof(xrc_impl_allocation_header) : alignof(size_t))
 #define XRC_EXTENDED_SIZE_HEADER_SIZE ((sizeof(size_t) + sizeof(xrc_impl_allocation_header) + (XRC_ALLOCATION_HEADER_ALIGNMENT - 1)) & ~(XRC_ALLOCATION_HEADER_ALIGNMENT - 1))
@@ -69,7 +70,6 @@ typedef struct xrc_impl_thread_data
 {
     xrc_impl_stack_node                   stack_node; // intrusive atomic stack node used for free list
     uint64_t                              local_rng_state;
-    size_t                                last_thread_scanned; // used as a hint to help distribute scanning work
     bool                                  is_collecting; // true if this thread is currently collecting
     _Alignas(64) xrc_impl_decrement_queue decrement_queue; // work queue of recursively generated decrements
     _Alignas(64) xrc_impl_decrement_stack decrement_stack; // stack of non-recursive decrements
@@ -90,11 +90,11 @@ typedef struct xrc_impl_control_data_s
     // xrc_impl_cache_line_padding pad_0; // padding to avoid false sharing
 
     // tree of scan start epochs of the most recently completed scan of each thread data
-    xrc_impl_static_reduce_tree completed_scan_time_tree;
+    xrc_impl_reduce_tree release_epoch_tree;
     // xrc_impl_reduce_tree completed_scan_time_tree;
 
     // tree of scan start epochs for each thread data
-    xrc_impl_static_reduce_tree scan_time_tree;
+    xrc_impl_reduce_tree scan_claim_tree;
     // xrc_impl_reduce_tree scan_time_tree;
 
     // free list of thread data structures

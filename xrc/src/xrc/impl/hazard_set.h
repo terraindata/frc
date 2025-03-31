@@ -11,14 +11,19 @@
 
 #include <xrc/settings.h>
 
-// #define XRC_LOCK_SIGNAL ((intptr_t)1)
+#define XRC_LOCK_SIGNAL ((intptr_t)1)
 
 /**
  * A xrc hazard pointer.
  */
 typedef struct xrc_impl_hazard
 {
-    void* pointer;
+    union
+    {
+        void*           void_pointer;
+        atomic_intptr_t atomic_pointer;
+    } pointer;
+
     // size_t pad[2];
     size_t thread_local_reference_count;
 } xrc_impl_hazard;
@@ -42,7 +47,7 @@ typedef struct xrc_impl_hazard_set
 
 typedef struct xrc_impl_thread_local_hazard_control_s
 {
-    size_t                    xrc_impl_thread_local_quiesce_count;
+    // size_t                    xrc_impl_thread_local_quiesce_count;
     xrc_impl_hazard*          xrc_impl_thread_local_hazard_set_head;
     xrc_impl_sequence_atomic* xrc_impl_thread_local_hazard_set_release_epoch;
 } xrc_impl_thread_local_hazard_control_s;
@@ -72,7 +77,7 @@ static inline void xrc_impl_hazard_set_free_hazard(
     xrc_impl_hazard* hazard
     )
 {
-    hazard->pointer = xrc_impl_thread_local_hazard_control.xrc_impl_thread_local_hazard_set_head;
+    hazard->pointer.void_pointer = xrc_impl_thread_local_hazard_control.xrc_impl_thread_local_hazard_set_head;
     xrc_impl_thread_local_hazard_control.xrc_impl_thread_local_hazard_set_head = hazard;
 }
 
@@ -98,7 +103,8 @@ static inline void xrc_impl_hazard_release(
 static inline xrc_impl_hazard* xrc_impl_hazard_set_allocate_hazard()
 {
     xrc_impl_hazard* hazard = xrc_impl_thread_local_hazard_control.xrc_impl_thread_local_hazard_set_head;
-    xrc_impl_thread_local_hazard_control.xrc_impl_thread_local_hazard_set_head = (xrc_impl_hazard*)hazard->pointer;
+    xrc_impl_thread_local_hazard_control.xrc_impl_thread_local_hazard_set_head = (xrc_impl_hazard*)hazard->pointer.
+        void_pointer;
     return hazard;
 }
 
@@ -116,37 +122,38 @@ static inline xrc_impl_hazard* xrc_impl_hazard_set_release_allocate(
 
 static inline uint_fast64_t xrc_impl_get_epoch();
 
-static void xrc_impl_hazard_quiesce_to_epoch(
-    xrc_impl_sequence epoch
-    )
-{
-    atomic_store_explicit(
-        xrc_impl_thread_local_hazard_control.xrc_impl_thread_local_hazard_set_release_epoch,
-        epoch,
-        memory_order_release
-        );
-    xrc_impl_thread_local_hazard_control.xrc_impl_thread_local_quiesce_count = XRC_HAZARD_SET_QUIESCENCE_THRESHOLD;
-}
+// static void xrc_impl_hazard_quiesce_to_epoch(
+//     xrc_impl_sequence epoch
+//     )
+// {
+//     atomic_store_explicit(
+//         xrc_impl_thread_local_hazard_control.xrc_impl_thread_local_hazard_set_release_epoch,
+//         epoch,
+//         memory_order_release
+//         );
+//     xrc_impl_thread_local_hazard_control.xrc_impl_thread_local_quiesce_count = XRC_HAZARD_SET_QUIESCENCE_THRESHOLD;
+// }
 
-static void xrc_impl_hazard_quiesce()
-{
-    xrc_impl_hazard_quiesce_to_epoch(xrc_impl_get_epoch());
-}
-
-static inline void xrc_impl_hazard_quiesce_tick(
-    )
-{
-    if (--xrc_impl_thread_local_hazard_control.xrc_impl_thread_local_quiesce_count == 0)
-        xrc_impl_hazard_quiesce();
-}
+// static void xrc_impl_hazard_quiesce()
+// {
+//     xrc_impl_hazard_quiesce_to_epoch(xrc_impl_get_epoch());
+// }
+//
+// static inline void xrc_impl_hazard_quiesce_tick(
+//     )
+// {
+//     if (--xrc_impl_thread_local_hazard_control.xrc_impl_thread_local_quiesce_count == 0)
+//         xrc_impl_hazard_quiesce();
+// }
 
 static inline void xrc_impl_hazard_publish(
     xrc_impl_hazard* hazard,
     void*            source
     )
 {
-    hazard->pointer = source;
-    xrc_impl_hazard_quiesce_tick(hazard);
+    atomic_store_explicit(&hazard->pointer.atomic_pointer, (intptr_t)source, memory_order_release);
+    // hazard->pointer = source;
+    // xrc_impl_hazard_quiesce_tick(hazard);
 }
 
 
@@ -155,10 +162,17 @@ static inline void* xrc_impl_hazard_protect_load(
     atomic_intptr_t* source
     )
 {
+    atomic_store_explicit(
+        source,
+        XRC_LOCK_SIGNAL,
+        memory_order_relaxed
+        );
+    atomic_thread_fence(memory_order_acq_rel);
     void* protectee = (void*)atomic_load_explicit(
         source,
         memory_order_relaxed
         );
+    atomic_store_explicit(&hazard->pointer.atomic_pointer, (intptr_t)protectee, memory_order_relaxed);
     xrc_impl_hazard_publish(hazard, protectee);
     return protectee;
 }

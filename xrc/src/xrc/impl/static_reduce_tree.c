@@ -42,66 +42,47 @@ void xrc_impl_static_reduce_tree_destroy(
 int xrc_impl_static_reduce_tree_update_min_from_leaf(
     xrc_impl_static_reduce_tree* target,
     size_t                       leaf_index,
-    xrc_impl_sequence            value
+    xrc_impl_sequence            leaf_value
     )
 {
     size_t index = leaf_index + XRC_IMPL_STATIC_REDUCE_TREE_NUM_LEAVES;
-
     while (index > 1)
     {
         size_t                    parent_index = index >> 1;
-        xrc_impl_sequence_atomic* current      = &target->nodes[index].value;
+        xrc_impl_sequence_atomic* curr         = &target->nodes[index].value;
         xrc_impl_sequence_atomic* sibling      = &target->nodes[index ^ 1].value;
         xrc_impl_sequence_atomic* parent       = &target->nodes[parent_index].value;
 
-        xrc_impl_sequence sibling_value, parent_value;
-
-        parent_value = atomic_load_explicit(parent, memory_order_acquire);
-        for (bool updated = false;;)
+        xrc_impl_sequence parent_val = atomic_load_explicit(parent, memory_order_acquire);
+        bool              updated    = false;
+        for (;;)
         {
             atomic_thread_fence(memory_order_acquire);
-            value         = atomic_load_explicit(current, memory_order_relaxed);
-            sibling_value = atomic_load_explicit(sibling, memory_order_relaxed);
+            leaf_value              = atomic_load_explicit(curr, memory_order_relaxed);
+            xrc_impl_sequence s_val = atomic_load_explicit(sibling, memory_order_relaxed);
+            xrc_impl_sequence new_p = (leaf_value <= s_val) ? leaf_value : s_val;
 
-            xrc_impl_sequence computed_parent_value = (value <= sibling_value) ? value : sibling_value;
-
-            // printf(
-            //     "%lu %lu %lu %lu %lu %lu %i\n",
-            //     index,
-            //     parent_index,
-            //     value,
-            //     sibling_value,
-            //     parent_value,
-            //     computed_parent_value,
-            //     updated
-            //     );
-            if (parent_value == computed_parent_value)
+            if (parent_val == new_p)
             {
                 if (updated)
-                {
-                    // printf("updated break: %lu\n", index);
-                    break; // updated and result verified, continue propagation
-                }
-                // printf("terminate %lu\n", index);
-                return 0; // success, min unchanged, terminate propagation
+                    break;
+                return 0; // min unchanged
             }
-
-            updated = atomic_compare_exchange_weak_explicit(
+            if (atomic_compare_exchange_weak_explicit(
                 parent,
-                &parent_value,
-                computed_parent_value,
+                &parent_val,
+                new_p,
                 memory_order_acq_rel,
                 memory_order_acquire
-                );
-            if (updated)
-                parent_value = computed_parent_value;
+                ))
+            {
+                parent_val = new_p;
+                updated    = true;
+            }
         }
-
-
         index = parent_index;
     }
-
-    return 1; // success, min updated
+    return 1; // min updated
 }
 
 
@@ -165,7 +146,7 @@ int xrc_impl_static_reduce_tree_update_min_lock(
     xrc_impl_sequence            value
     )
 {
-    for (;;)
+    while (true)
     {
         int result = xrc_impl_static_reduce_tree_update_min_try_lock(
             target,
@@ -177,7 +158,6 @@ int xrc_impl_static_reduce_tree_update_min_lock(
 
         size_t                    index          = leaf_index + XRC_IMPL_STATIC_REDUCE_TREE_NUM_LEAVES;
         xrc_impl_sequence_atomic* node_value_ptr = &target->nodes[index].value;
-
         xrc_impl_sequence previous_value = atomic_load_explicit(node_value_ptr, memory_order_acquire);
 
         if (previous_value >= value)
