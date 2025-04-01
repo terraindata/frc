@@ -267,7 +267,7 @@ static inline void* xrc_sptr_initialize_with_allocation(
     return memory;
 }
 
-static inline void* xrc_sptr_get_and_increment_atomic(
+static inline void* xrc_sptr_atomic_get_and_increment(
     xrc_sptr* target
     )
 {
@@ -293,7 +293,7 @@ static inline void xrc_sptr_initialize_with_copy_of(
 {
     atomic_store_explicit(
         &target->atomic_pointer,
-        (intptr_t)xrc_sptr_get_and_increment_atomic(source),
+        (intptr_t)xrc_sptr_atomic_get_and_increment(source),
         memory_order_release
         );
 }
@@ -444,7 +444,7 @@ static inline void xrc_sptr_assign_move(
  *
  * Releases the previous reference but does not acquire the new one.
  */
-static inline void xrc_sptr_assign_vptr_atomic_without_increment(
+static inline void xrc_sptr_atomic_assign_vptr_without_increment(
     xrc_sptr* target,
     void*     source
     )
@@ -467,12 +467,49 @@ static inline void xrc_sptr_assign_vptr_atomic_without_increment(
  *
  * Releases the previous reference but does not acquire the new one.
  */
-static inline void xrc_sptr_assign_atomic(
+static inline void xrc_sptr_atomic_assign(
     xrc_sptr* target,
     xrc_sptr* source
     )
 {
-    xrc_sptr_assign_vptr_atomic_without_increment(target, xrc_sptr_get_and_increment_atomic(source));
+    xrc_sptr_atomic_assign_vptr_without_increment(target, xrc_sptr_atomic_get_and_increment(source));
+}
+
+
+/**
+ * Swaps a shared pointer with another.
+ *
+ * Concurrent readers to target and source are permitted.
+ * Caller must be the only mutator of target and source.
+ */
+static inline void xrc_sptr_swap(
+    xrc_sptr* target,
+    xrc_sptr* source
+    )
+{
+    void* previous_value     = xrc_sptr_get(target);
+    target->ordinary_pointer = source->ordinary_pointer;
+    source->ordinary_pointer = previous_value;
+}
+
+/**
+ * Atomically swaps a shared pointer with another.
+ *
+ * Concurrent readers and mutators to target are permitted.
+ * Concurrent readers to source are permitted. Caller must be the only mutator of source.
+ */
+static inline void xrc_sptr_atomic_swap(
+    xrc_sptr* target,
+    xrc_sptr* source
+    )
+{
+    intptr_t source_value   = (intptr_t)xrc_sptr_get(source);
+    void*    previous_value = (void*)atomic_exchange_explicit(
+        &target->atomic_pointer,
+        source_value,
+        memory_order_acq_rel
+        );
+    source->ordinary_pointer = (void*)previous_value;
 }
 
 /**
@@ -486,12 +523,12 @@ static inline void xrc_sptr_assign_atomic(
  *
  * Releases the previous reference but does not acquire the new one.
  */
-static inline void xrc_sptr_assign_lptr_atomic_without_increment(
+static inline void xrc_sptr_atomic_assign_lptr_without_increment(
     xrc_sptr* target,
     xrc_lptr  source
     )
 {
-    xrc_sptr_assign_vptr_atomic_without_increment(target, xrc_lptr_get(source));
+    xrc_sptr_atomic_assign_vptr_without_increment(target, xrc_lptr_get(source));
 }
 
 /**
@@ -501,24 +538,24 @@ static inline void xrc_sptr_assign_lptr_atomic_without_increment(
  *
  * Releases the previous reference and acquires the new one.
  */
-static inline void xrc_sptr_assign_vptr_atomic(
+static inline void xrc_sptr_atomic_assign_vptr(
     xrc_sptr* target,
     void*     source
     )
 {
     xrc_impl_increment_reference_count(source);
-    xrc_sptr_assign_vptr_atomic_without_increment(target, source);
+    xrc_sptr_atomic_assign_vptr_without_increment(target, source);
 }
 
 /**
  * Atomically assigns a shared pointer to NULL.
  * Concurrent readers and mutators are permitted.
  */
-static inline void xrc_sptr_clear_atomic(
+static inline void xrc_sptr_atomic_clear(
     xrc_sptr* target
     )
 {
-    xrc_sptr_assign_vptr_atomic_without_increment(target, NULL);
+    xrc_sptr_atomic_assign_vptr_without_increment(target, NULL);
 }
 
 
@@ -566,7 +603,7 @@ static inline void* xrc_sptr_assign_allocate(
  *
  * Releases the previous reference and acquires the new one.
  */
-static inline void xrc_sptr_assign_allocate_atomic(
+static inline void xrc_sptr_atomic_assign_allocate(
     // the pointer to assign to the address of the allocated memory
     xrc_sptr* target,
     // the size of the allocated memory
@@ -584,7 +621,7 @@ static inline void xrc_sptr_assign_allocate_atomic(
     xrc_impl_allocation_flags flags
     )
 {
-    xrc_sptr_assign_vptr_atomic_without_increment(
+    xrc_sptr_atomic_assign_vptr_without_increment(
         target,
         xrc_alloc(
             size,

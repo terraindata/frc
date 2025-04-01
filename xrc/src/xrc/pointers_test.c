@@ -55,7 +55,7 @@ static void simple_single_threaded_test()
         }
         else if (roll <= 6)
         {
-            xrc_sptr_assign_allocate_atomic(
+            xrc_sptr_atomic_assign_allocate(
                 &a,
                 sizeof(int*),
                 alignof(int*),
@@ -74,7 +74,7 @@ static void simple_single_threaded_test()
         }
         else
         {
-            xrc_sptr_clear_atomic(&a);
+            xrc_sptr_atomic_clear(&a);
         }
     }
 
@@ -117,12 +117,12 @@ static void* worker_thread(
             int** allocation = xrc_alloc(sizeof(int*), alignof(int*), 0, dispose_test_int, 0);
             *allocation      = &test_allocation_status[i];
 
-            xrc_sptr_assign_vptr_atomic_without_increment(shared_pointer, allocation);
+            xrc_sptr_atomic_assign_vptr_without_increment(shared_pointer, allocation);
             i++;
         }
         else
         {
-            xrc_sptr_clear_atomic(shared_pointer);
+            xrc_sptr_atomic_clear(shared_pointer);
         }
     }
 
