@@ -19,6 +19,9 @@ typedef struct xrc_btree_header
 
 typedef uint64_t xrc_btree_key;
 typedef uint64_t xrc_btree_value;
+typedef
+_Atomic
+(xrc_btree_value) xrc_btree_value_atomic;
 
 #define XRC_BTREE_MAX_DEPTH (63)
 #define XRC_BTREE_NODE_SIZE (4096)
@@ -29,8 +32,8 @@ typedef uint64_t xrc_btree_value;
 
 typedef struct xrc_btree_leaf
 {
-    xrc_btree_key   keys[XRC_BTREE_LEAF_KEYS];
-    xrc_btree_value values[XRC_BTREE_LEAF_KEYS];
+    xrc_btree_key          keys[XRC_BTREE_LEAF_KEYS];
+    xrc_btree_value_atomic values[XRC_BTREE_LEAF_KEYS];
 } xrc_btree_leaf;
 
 typedef struct xrc_btree_internal
