@@ -69,6 +69,7 @@ static inline void xrc_impl_hazard_set_free_hazard(
     xrc_impl_hazard* hazard
     )
 {
+    // printf("releasing hazard %p\n", hazard);
     hazard->pointer.void_pointer = xrc_impl_thread_local_hazard_control.xrc_impl_thread_local_hazard_set_head;
     xrc_impl_thread_local_hazard_control.xrc_impl_thread_local_hazard_set_head = hazard;
 }
@@ -80,8 +81,6 @@ static inline void xrc_impl_hazard_release(
     xrc_impl_hazard* target
     )
 {
-    // if (target == NULL)
-    //     return;
     if (target->thread_local_reference_count == 0)
         xrc_impl_hazard_set_free_hazard(target);
     else
@@ -94,6 +93,7 @@ static inline void xrc_impl_hazard_release(
 static inline xrc_impl_hazard* xrc_impl_hazard_set_allocate_hazard()
 {
     xrc_impl_hazard* hazard = xrc_impl_thread_local_hazard_control.xrc_impl_thread_local_hazard_set_head;
+    // printf("allocating hazard %p\n", hazard);
     xrc_impl_thread_local_hazard_control.xrc_impl_thread_local_hazard_set_head = (xrc_impl_hazard*)hazard->pointer.
                                                                                                            void_pointer;
     return hazard;

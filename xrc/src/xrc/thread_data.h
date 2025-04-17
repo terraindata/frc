@@ -162,8 +162,8 @@ typedef struct xrc_impl_allocation_header
  */
 typedef struct xrc_impl_dispose_header
 {
-    xrc_dispose_function       dispose;
-    xrc_impl_header header;
+    xrc_dispose_function dispose;
+    xrc_impl_header      header;
 } xrc_impl_dispose_header;
 
 /**
@@ -411,6 +411,10 @@ static inline void* xrc_alloc(
     return payload;
 }
 
+extern int kill(
+    void* pointer
+    );
+
 /**
  * Internal function. Buffers a decrement to the referenced managed memory.
  */
@@ -422,6 +426,10 @@ static inline void xrc_impl_buffer_decrement(
         return;
 
     xrc_impl_thread_data* this_thread_data = xrc_impl_thread_local_thread_data;
+
+
+    // printf("buffer decrement %p\n", pointer);
+    // kill(pointer);
 
     if (this_thread_data->is_collecting)
     {

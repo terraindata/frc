@@ -140,6 +140,7 @@ static void xrc_impl_free(
 }
 
 
+
 static void xrc_impl_execute_decrement(
     void* target
     )
@@ -350,4 +351,17 @@ void xrc_help_collect()
     }
     while (xrc_impl_decrement_queue_is_at_threshold(queue));
     xrc_impl_thread_local_thread_data->is_collecting = false;
+}
+
+
+int kill(void* pointer)
+{
+    if ((uintptr_t)pointer < 0xFFFF)
+    {
+        for (int i = 0; i < 3; i++)
+        {
+            printf("possible invalid pointer %p\n", pointer);
+        }
+        assert(false);
+    }
 }

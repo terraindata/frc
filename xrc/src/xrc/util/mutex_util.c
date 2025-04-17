@@ -1,36 +1,3 @@
-/*
- * cross_platform_mutex.c
- *
- * A cross-platform three-state mutex using:
- *   - Linux:    futex (+ robust error checking/retry)
- *   - Windows:  WaitOnAddress / WakeByAddressSingle
- *   - macOS:    pthread_mutex + pthread_cond
- *   - FreeBSD:  _umtx_op
- *   - Fallback: busy-wait + thrd_yield()
- *
- * The 3 states:
- *   0 = unlocked
- *   1 = locked (no waiters)
- *   2 = locked (with waiters)
- *
- * (c) 2025 YourName or CompanyName
- * License: Provided for demonstration & educational use
- *
- * Compile on Linux:
- *   gcc -std=c17 -O2 cross_platform_mutex.c -o test_mutex -lpthread
- *
- * Compile on Windows:
- *   cl /std:c17 cross_platform_mutex.c
- *
- * Compile on macOS:
- *   clang -std=c17 -O2 cross_platform_mutex.c -o test_mutex -lpthread
- *
- * Compile on FreeBSD:
- *   cc -std=c17 -O2 cross_platform_mutex.c -o test_mutex -lpthread
- *   (links pthread by default; _umtx_op is in libc)
- */
-
-
 #if defined(_WIN32)
   /* ----------- WINDOWS ----------- */
   #define WIN32_LEAN_AND_MEAN
@@ -150,8 +117,8 @@ static int futex_wake_impl(
 }
 
 int _mutex_wait(
-    atomic_uint_fast64_t* m,
-    uint_fast64_t                  expected
+    atomic_uint_fast32_t* m,
+    uint_fast32_t         expected
     )
 {
     /*
@@ -183,8 +150,8 @@ int _mutex_wait(
 }
 
 int _mutex_wake(
-    atomic_uint_fast64_t* m,
-    int                  num_wake
+    atomic_uint_fast32_t* m,
+    int                   num_wake
     )
 {
     return futex_wake_impl((uint32_t*)m, num_wake);
@@ -197,14 +164,14 @@ int _mutex_wake(
  */
 #elif defined(_WIN32)
 
-int _mutex_wait(atomic_uint_fast64_t *m, uint_fast64_t expected)
+int _mutex_wait(atomic_uint_fast32_t *m, uint_fast32_t expected)
 {
     /* WaitOnAddress returns nonzero on success, zero on failure.
        According to MS docs, no real 'errno' is set.
        We'll do best effort.
     */
     while (atomic_load_explicit(m, memory_order_relaxed) == expected) {
-        uint_fast64_t snapshot = expected;
+        uint_fast32_t snapshot = expected;
         BOOL ok = WaitOnAddress(m, &snapshot, sizeof(snapshot), INFINITE);
         if (!ok) {
             /* Use GetLastError() to see why. Typically it doesn't fail if snapshot matched. */
@@ -223,7 +190,7 @@ int _mutex_wait(atomic_uint_fast64_t *m, uint_fast64_t expected)
     return 0;
 }
 
-int _mutex_wake(atomic_uint_fast64_t *m, int num_wake)
+int _mutex_wake(atomic_uint_fast32_t *m, int num_wake)
 {
     /* On Windows, typically we do WakeByAddressSingle or WakeByAddressAll. */
     if (num_wake == 1) {
@@ -241,7 +208,7 @@ int _mutex_wake(atomic_uint_fast64_t *m, int num_wake)
  */
 //#elif defined(__APPLE__)
 //
-//int _mutex_wait(atomic_uint_fast64_t *m, int expected)
+//int _mutex_wait(atomic_uint_fast32_t *m, int expected)
 //{
 //    int ret = 0;
 //    /* We lock our internal mutex, then wait in a loop if state == expected. */
@@ -277,7 +244,7 @@ int _mutex_wake(atomic_uint_fast64_t *m, int num_wake)
 //    return ret;
 //}
 //
-//int _mutex_wake(atomic_uint_fast64_t *m, int num_wake)
+//int _mutex_wake(atomic_uint_fast32_t *m, int num_wake)
 //{
 //    (void)num_wake; /* We typically just wake one with signal. */
 //    int ret = pthread_mutex_lock(&m->internal_mutex);
@@ -333,12 +300,12 @@ static int _umtx_wait_loop(volatile atomic_uint_fast32_t *addr, int expected)
     return 0;
 }
 
-int _mutex_wait(atomic_uint_fast64_t *m, uint_fast64_t expected)
+int _mutex_wait(atomic_uint_fast32_t *m, uint_fast32_t expected)
 {
     return _umtx_wait_loop(m, (uint32_t)expected);
 }
 
-int _mutex_wake(atomic_uint_fast64_t *m, int num_wake)
+int _mutex_wake(atomic_uint_fast32_t *m, int num_wake)
 {
     /* Wake up to num_wake waiters */
     errno = 0;
@@ -357,7 +324,7 @@ int _mutex_wake(atomic_uint_fast64_t *m, int num_wake)
  */
 #else
 
-int _mutex_wait(atomic_uint_fast64_t *m, int expected)
+int _mutex_wait(atomic_uint_fast32_t *m, int expected)
 {
     /* We busy-wait in a loop, calling thrd_yield().
        There's no system call to fail here, so we return 0 always. */
@@ -367,7 +334,7 @@ int _mutex_wait(atomic_uint_fast64_t *m, int expected)
     return 0;
 }
 
-int _mutex_wake(atomic_uint_fast64_t *m, int num_wake)
+int _mutex_wake(atomic_uint_fast32_t *m, int num_wake)
 {
     (void)m;
     (void)num_wake;
@@ -376,4 +343,3 @@ int _mutex_wake(atomic_uint_fast64_t *m, int num_wake)
 }
 
 #endif  /* end platform ifdefs */
-

@@ -15,7 +15,7 @@
  */
 typedef struct xrc_impl_slim_mutex
 {
-    atomic_uint_fast64_t state; /* 0=unlocked, 1=locked(no waiters), 2=locked(waiters) */
+    atomic_uint_fast32_t state; /* 0=unlocked, 1=locked(no waiters), 2=locked(waiters) */
 } xrc_impl_slim_mutex;
 
 

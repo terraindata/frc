@@ -157,6 +157,8 @@ static void build_random_btree(
     for (uint64_t i = 0; i < numNodes; i++)
     {
         xrc_btree_insert(btree, keys[i], i);
+        // printf("Inserted key %lu with value %lu\n", keys[i], i);
+        // xrc_btree_print(btree);
         // //verify...
         // uint64_t outValue;
         // assert(xrc_btree_find(btree, keys[i], &outValue));
@@ -164,6 +166,8 @@ static void build_random_btree(
     }
 
     free(keys);
+
+    xrc_btree_print(btree);
 }
 
 // -------------------------------------------------------------------------
@@ -191,7 +195,7 @@ static int read_benchmark_thread(
     )
 {
     read_thread_data_t* data     = (read_thread_data_t*)arg;
-    xrc_btree*          btree    = data->btree;
+    xrc_btree*          btree    = data->btree;\
     uint64_t            numNodes = data->numNodes;
     uint64_t            ops      = data->ops;
 
@@ -199,7 +203,7 @@ static int read_benchmark_thread(
     xrc_attach_thread();
 
     // Pre-generate random keys
-    uint64_t* keys = (uint64_t*)malloc(sizeof(uint64_t) * ops);
+    xrc_btree_key* keys = (uint64_t*)malloc(sizeof(uint64_t) * ops);
     if (!keys)
     {
         fprintf(stderr, "Thread malloc failed for keys array.\n");
@@ -220,7 +224,7 @@ static int read_benchmark_thread(
     timespec_get(&start, TIME_UTC);
     for (uint64_t i = 0; i < ops; i++)
     {
-        uint64_t outValue;
+        xrc_btree_value outValue;
         xrc_btree_find(btree, keys[i], &outValue);
         // printf("Thread %p: key %lu, value %lu\n", data, keys[i], outValue);
     }

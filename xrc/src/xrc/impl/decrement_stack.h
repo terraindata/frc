@@ -8,6 +8,7 @@
 #include <stdatomic.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdio.h>
 #include <xrc/settings.h>
 
 
@@ -54,6 +55,7 @@ static inline void xrc_impl_decrement_stack_push(
     size_t head = atomic_load_explicit(&target->head_index, memory_order_relaxed); // read head
     target->buffer[head % XRC_PER_THREAD_DECREMENT_STACK_LENGTH] = element; // store element
     atomic_store_explicit(&target->head_index, head + 1, memory_order_relaxed); // update head
+    printf("decrement stack push %p\n", element);
 }
 
 /**
@@ -75,6 +77,8 @@ static inline bool xrc_impl_decrement_stack_pop(
     head -= 1;
     *element = target->buffer[head % XRC_PER_THREAD_DECREMENT_STACK_LENGTH]; // read element
     atomic_store_explicit(&target->head_index, head, memory_order_release); // update head
+
+    printf("decrement stack pop %p\n", *element);
     return true; // success
 }
 
@@ -148,7 +152,7 @@ static inline int xrc_impl_decrement_stack_steal(
         memory_order_acquire
         ))
         return 0; // success => we stole element
-    return -2; // failure => someone else stole element
+    return -2; // failure => another thread stole concurrently
 }
 
 /**

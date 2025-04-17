@@ -7,11 +7,11 @@
 #include <stdatomic.h>
 
 extern int _mutex_wait(
-    atomic_uint_fast64_t* m,
+    atomic_uint_fast32_t* m,
     uint_fast64_t         expected
     );
 
 extern int _mutex_wake(
-    atomic_uint_fast64_t* m,
+    atomic_uint_fast32_t* m,
     int                   num_wake
     );

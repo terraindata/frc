@@ -7,6 +7,7 @@
 #include <assert.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include <xrc/settings.h>
 
 #include <xrc/util/util.h>
@@ -93,6 +94,7 @@ static inline bool xrc_impl_decrement_queue_push(
     void* element
     )
 {
+    // printf("decrement queue push %p\n", element);
     // assert(!xrc_impl_decrement_queue_is_full(target));
     size_t head                     = target->head;
     target->decrement_epochs[head]  = 0;
@@ -167,6 +169,8 @@ static inline int xrc_impl_decrement_queue_pop(
         return -1; // empty
 
     uint_fast64_t epoch = target->decrement_epochs[tail];
+
+    // printf("decrement queue pop %p: %lu\n", target->decrement_targets[tail], epoch);
     if (epoch >= oldest_complete_scan_epoch)
     {
         *oldest_decrement_epoch = epoch;

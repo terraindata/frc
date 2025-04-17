@@ -12,22 +12,6 @@
  *   0 = unlocked
  *   1 = locked (no waiters)
  *   2 = locked (with waiters)
- *
- * (c) 2025 YourName or CompanyName
- * License: Provided for demonstration & educational use
- *
- * Compile on Linux:
- *   gcc -std=c17 -O2 cross_platform_mutex.c -o test_mutex -lpthread
- *
- * Compile on Windows:
- *   cl /std:c17 cross_platform_mutex.c
- *
- * Compile on macOS:
- *   clang -std=c17 -O2 cross_platform_mutex.c -o test_mutex -lpthread
- *
- * Compile on FreeBSD:
- *   cc -std=c17 -O2 cross_platform_mutex.c -o test_mutex -lpthread
- *   (links pthread by default; _umtx_op is in libc)
  */
 
 #include "slim_mutex.h"
@@ -83,7 +67,7 @@ int xrc_impl_slim_mutex_try_lock(
     xrc_impl_slim_mutex* mutex
     )
 {
-    uint_fast64_t expected = 0;
+    uint_fast32_t expected = 0;
     if (atomic_compare_exchange_strong_explicit(
         &mutex->state,
         &expected,
@@ -108,7 +92,7 @@ int xrc_impl_slim_mutex_lock(
     bool                 try_lock
     )
 {
-    uint_fast64_t current_state = 0;
+    uint_fast32_t current_state = 0;
     /* Attempt fast path: 0->1 */
     if (atomic_compare_exchange_strong_explicit(
         &mutex->state,
@@ -180,7 +164,7 @@ int xrc_impl_slim_mutex_unlock(
     xrc_impl_slim_mutex* mutex
     )
 {
-    uint_fast64_t old_state = atomic_exchange_explicit(
+    uint_fast32_t old_state = atomic_exchange_explicit(
         &mutex->state,
         0,
         memory_order_acq_rel
