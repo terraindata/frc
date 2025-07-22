@@ -48,12 +48,12 @@ endforeach ()
 # Add a custom target to dump assembly for the two functions.
 # This will compile the test files using the -S flag to output .s assembly files.
 # Add a custom target to dump assembly for the two functions.
-add_custom_target(dump_assembly
-        COMMAND ${CMAKE_C_COMPILER} -I${CMAKE_CURRENT_SOURCE_DIR}/.. -S -c ${C_ASM_FLAGS} -o ${CMAKE_CURRENT_BINARY_DIR}/bst_read_test.s ${CMAKE_CURRENT_SOURCE_DIR}/test/bst_read_test.c
-        COMMAND ${CMAKE_C_COMPILER} -I${CMAKE_CURRENT_SOURCE_DIR}/.. -S -c ${C_ASM_FLAGS} -o ${CMAKE_CURRENT_BINARY_DIR}/raw_bst_read_test.s ${CMAKE_CURRENT_SOURCE_DIR}/test/raw_bst_read_test.c
-        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/test/bst_read_test.c ${CMAKE_CURRENT_SOURCE_DIR}/test/raw_bst_read_test.c
-        COMMENT "Generating assembly files for xrc_bst_find() and xrc_raw_bst_find()"
-)
+#add_custom_target(dump_assembly
+#        COMMAND ${CMAKE_C_COMPILER} -I${CMAKE_CURRENT_SOURCE_DIR}/.. -S -c ${C_ASM_FLAGS} -o ${CMAKE_CURRENT_BINARY_DIR}/bst_read_test.s ${CMAKE_CURRENT_SOURCE_DIR}/test/bst_read_test.c
+#        COMMAND ${CMAKE_C_COMPILER} -I${CMAKE_CURRENT_SOURCE_DIR}/.. -S -c ${C_ASM_FLAGS} -o ${CMAKE_CURRENT_BINARY_DIR}/raw_bst_read_test.s ${CMAKE_CURRENT_SOURCE_DIR}/test/raw_bst_read_test.c
+#        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/test/bst_read_test.c ${CMAKE_CURRENT_SOURCE_DIR}/test/raw_bst_read_test.c
+#        COMMENT "Generating assembly files for xrc_bst_find() and xrc_raw_bst_find()"
+#)
 
 
 # Add the main library

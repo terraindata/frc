@@ -156,6 +156,7 @@ static void build_random_btree(
     // Insert into btree
     for (uint64_t i = 0; i < numNodes; i++)
     {
+        if (i % 100000 == 0) printf("Inserting node %lu with key %lu\n", i, keys[i]);
         xrc_btree_insert(btree, keys[i], i);
         // printf("Inserted key %lu with value %lu\n", keys[i], i);
         // xrc_btree_print(btree);
@@ -254,15 +255,22 @@ int main(
     srand(0);
 
     // xrc global init
+    printf("Calling xrc_initialize...\n");
     xrc_initialize();
+    printf("Calling xrc_attach_thread...\n");
     xrc_attach_thread();
+    printf("XRC initialized\n");
 
     // 1. Initialize btree
     xrc_btree btree;
+    printf("Calling xrc_btree_initialize...\n");
     xrc_btree_initialize(&btree);
+    printf("btree initialized\n");
 
     // 2. Build btree with random keys
+    printf("Building random btree with %lu nodes...\n", NUM_NODES);
     build_random_btree(&btree, NUM_NODES);
+    printf("btree built\n");
 
     for (size_t rep = 0; rep < 4; ++rep)
     {
