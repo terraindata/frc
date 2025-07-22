@@ -70,6 +70,8 @@ foreach (TEST_FILE ${TEST_FILES})
     target_compile_options(${TEST_NAME} PRIVATE ${C_COMPILER_OPTIONS})
     target_link_options(${TEST_NAME} PRIVATE ${C_LINKER_OPTIONS})
     target_link_libraries(${TEST_NAME} libxrc)
+    target_link_libraries(${TEST_NAME} numa)
+    target_link_libraries(${TEST_NAME} m)
     add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
 endforeach ()
 
