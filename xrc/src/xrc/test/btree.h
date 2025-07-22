@@ -26,7 +26,7 @@ typedef xrc_btree_value xrc_btree_value_atomic;
 #define XRC_BTREE_ALIGNMENT (MAX(MAX(alignof(xrc_btree_header), alignof(xrc_btree_key)), alignof(xrc_btree_value)))
 #define XRC_BTREE_HEADER_SIZE ((sizeof(xrc_btree_header) + XRC_BTREE_ALIGNMENT - 1) & ~(XRC_BTREE_ALIGNMENT - 1))
 #define XRC_BTREE_LEAF_KEYS ((XRC_BTREE_NODE_SIZE - XRC_BTREE_HEADER_SIZE) / (sizeof(xrc_btree_key) + sizeof(xrc_btree_value)))
-#define XRC_BTREE_INTERNAL_KEYS (((XRC_BTREE_NODE_SIZE - XRC_BTREE_HEADER_SIZE) / (sizeof(xrc_btree_key) + sizeof(xrc_sptr))))
+#define XRC_BTREE_INTERNAL_KEYS (((XRC_BTREE_NODE_SIZE - XRC_BTREE_HEADER_SIZE - sizeof(xrc_sptr)) / (sizeof(xrc_btree_key) + sizeof(xrc_sptr))))
 
 typedef struct xrc_btree_node xrc_btree_node;
 
