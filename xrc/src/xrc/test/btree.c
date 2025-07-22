@@ -17,11 +17,11 @@ static void xrc_btree_node_initialize(
     int32_t length
     )
 {
-    xrc_btree_node* node = xrc_sptr_initialize_with_allocation(
+    xrc_btree_node* node = xrc_sptr_assign_allocate(
         target,
         sizeof(xrc_btree_node),
         alignof(xrc_btree_node),
-        1,
+        0,
         xrc_btree_node_dispose,
         0
         );
@@ -36,7 +36,7 @@ static void xrc_btree_node_initialize(
     // Initialize children array for internal nodes
     if (!is_leaf)
     {
-        for (int32_t i = 0; i < XRC_BTREE_INTERNAL_KEYS; i++)
+        for (int32_t i = 0; i < XRC_BTREE_INTERNAL_KEYS + 1; i++)
         {
             xrc_sptr_initialize(&node->body.internal.children[i]);
         }
@@ -119,9 +119,14 @@ bool xrc_btree_find(
     
     while (!node->header.is_leaf)
     {
-        int32_t index = MAX(0, xrc_btree_node_find_key(node->body.internal.keys, node->header.length, key));
+        int32_t index = MAX(0, xrc_btree_node_find_key(node->body.internal.keys, node->header.length - 1, key));
         current = xrc_lptr_assign_from_sptr(current, &node->body.internal.children[index]);
         node = (xrc_btree_node*)xrc_lptr_get(current);
+        if (node == NULL)
+        {
+            xrc_lptr_dispose(current);
+            return false;
+        }
     }
 
     int32_t index = xrc_btree_node_find_key(node->body.leaf.keys, node->header.length, key);
@@ -144,11 +149,13 @@ typedef struct xrc_btree_path
 
 static void xrc_btree_path_dispose(xrc_btree_path* path)
 {
-    if (path->depth >= 0)
+    // Dispose all hazard pointers in the path
+    for (int32_t i = 0; i < XRC_BTREE_MAX_DEPTH; i++)
     {
-        for (int32_t i = 0; i <= path->depth; i++)
+        if (path->nodes[i].hazard != NULL)
         {
             xrc_lptr_dispose(path->nodes[i]);
+            path->nodes[i].hazard = NULL; // Clear to prevent double-dispose
         }
     }
 }
@@ -188,7 +195,7 @@ static void xrc_btree_find_path(
             break;
         }
 
-        path->index[depth] = MAX(0, xrc_btree_node_find_key(current->body.internal.keys, current->header.length, key));
+        path->index[depth] = MAX(0, xrc_btree_node_find_key(current->body.internal.keys, current->header.length - 1, key));
         depth++;
         path->nodes[depth] = xrc_lptr_initialize_from_sptr(&current->body.internal.children[path->index[depth-1]]);
         current = (xrc_btree_node*)xrc_lptr_get(path->nodes[depth]);
@@ -365,6 +372,7 @@ static void xrc_btree_insert_into_internal_node(
     if (path->depth == 0) // need to create new root
     {
         xrc_sptr new_root_sptr;
+        xrc_sptr_initialize(&new_root_sptr);
         xrc_btree_node_initialize(&new_root_sptr, false, 2);
         xrc_btree_node* new_root = (xrc_btree_node*)xrc_sptr_get(&new_root_sptr);
         new_root->body.internal.keys[0] = key;
@@ -380,9 +388,10 @@ static void xrc_btree_insert_into_internal_node(
     int32_t index = path->index[path->depth] + 1;
     uint16_t length = node->header.length;
 
-    if (length < XRC_BTREE_INTERNAL_KEYS) // insert case
+    if (length <= XRC_BTREE_INTERNAL_KEYS) // insert case (can hold up to KEYS+1 children)
     {
         xrc_sptr new_node_sptr;
+        xrc_sptr_initialize(&new_node_sptr);
         xrc_btree_do_insert_internal(&new_node_sptr, node, 0, length, index, key, left, right);
         
         if (path->depth == 0)
@@ -399,6 +408,8 @@ static void xrc_btree_insert_into_internal_node(
     else // split case
     {
         xrc_sptr lparent_sptr, rparent_sptr;
+        xrc_sptr_initialize(&lparent_sptr);
+        xrc_sptr_initialize(&rparent_sptr);
         xrc_btree_do_insert_internal(&lparent_sptr, node, 0, length / 2, index, key, left, right);
         xrc_btree_do_insert_internal(&rparent_sptr, node, length / 2, length, index, key, left, right);
         
@@ -431,6 +442,7 @@ static bool xrc_btree_insert_into_leaf(
     if (length < XRC_BTREE_LEAF_KEYS) // insert case
     {
         xrc_sptr new_node_sptr;
+        xrc_sptr_initialize(&new_node_sptr);
         xrc_btree_do_insert_leaf(&new_node_sptr, node, 0, length, index, key, value);
         
         if (path->depth == 0)
@@ -447,6 +459,8 @@ static bool xrc_btree_insert_into_leaf(
     else // split case
     {
         xrc_sptr left_sptr, right_sptr;
+        xrc_sptr_initialize(&left_sptr);
+        xrc_sptr_initialize(&right_sptr);
         xrc_btree_do_insert_leaf(&left_sptr, node, 0, length / 2, index, key, value);
         xrc_btree_do_insert_leaf(&right_sptr, node, length / 2, length, index, key, value);
         
@@ -467,6 +481,7 @@ bool xrc_btree_insert(
     )
 {
     xrc_btree_path path;
+    memset(&path, 0, sizeof(path));
     path.depth = 0;
     xrc_btree_find_path(target, &path, key, NULL);
     bool result = xrc_btree_insert_into_leaf(target, &path, key, value);

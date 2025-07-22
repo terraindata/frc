@@ -39,7 +39,7 @@ typedef struct xrc_btree_leaf
 typedef struct xrc_btree_internal
 {
     xrc_btree_key   keys[XRC_BTREE_INTERNAL_KEYS];
-    xrc_sptr children[XRC_BTREE_INTERNAL_KEYS];
+    xrc_sptr children[XRC_BTREE_INTERNAL_KEYS + 1];  // Need one more child than keys
 } xrc_btree_internal;
 
 typedef struct xrc_btree_node
