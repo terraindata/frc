@@ -18,6 +18,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <sched.h>
 
 #include "mutex_util.h"
 
@@ -110,11 +111,21 @@ int xrc_impl_slim_mutex_lock(
         return -1; /* locked (or spurious fail) */
 
     /* Slow path */
+    int spin_count = 0;
     for (;;)
     {
         /* If the state was 1, attempt to mark waiters: 1->2 */
         if (current_state == 1)
         {
+            /* Spin briefly before marking waiters to avoid thundering herd */
+            if (spin_count < 128)
+            {
+                spin_count++;
+                sched_yield();
+                current_state = atomic_load_explicit(&mutex->state, memory_order_acquire);
+                continue;
+            }
+            
             if (atomic_compare_exchange_weak_explicit(
                 &mutex->state,
                 &current_state,
@@ -129,7 +140,7 @@ int xrc_impl_slim_mutex_lock(
         }
 
         /* If state != 0, wait while it's 2. */
-        if (current_state != 0)
+        if (current_state == 2)
         {
             int err = _mutex_wait(&mutex->state, 2);
             if (err != 0)

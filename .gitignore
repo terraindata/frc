@@ -48,3 +48,6 @@ cmake_install.cmake
 # Do not include built binaries
 bin
 benchmark/data
+/xrc/src/xrc/build/
+/xrc/src/xrc/cmake-build-debug/
+/xrc/src/xrc/cmake-build-release/

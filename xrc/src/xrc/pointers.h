@@ -267,11 +267,26 @@ static inline void* xrc_sptr_initialize_with_allocation(
     return memory;
 }
 
+/**
+ * Atomically loads a pointer and increments its reference count.
+ * 
+ * OPTIMIZATION: This function temporarily uses the top hazard pointer from the free list
+ * without actually allocating it. The hazard is borrowed only for the brief window
+ * between loading and incrementing the reference count. This is safe because:
+ * - No recursive hazard allocations occur during this operation
+ * - The pointer is protected by the increment once xrc_impl_increment_reference_count returns
+ * - The hazard's next pointer is preserved and restored, leaving the free list unchanged
+ */
 static inline void* xrc_sptr_atomic_get_and_increment(
     xrc_sptr* target
     )
 {
     xrc_impl_hazard* hazard         = xrc_impl_thread_local_hazard_control.xrc_impl_thread_local_hazard_set_head;
+    if (hazard == NULL)
+    {
+        fprintf(stderr, "FATAL: No hazard pointers available in xrc_sptr_atomic_get_and_increment\n");
+        abort();
+    }
     void*            next           = hazard->pointer.void_pointer; // reserve next pointer
     void*            source_pointer = xrc_impl_hazard_protect_load(hazard, &target->atomic_pointer);
     xrc_impl_increment_reference_count(source_pointer);

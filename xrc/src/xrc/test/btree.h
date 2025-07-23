@@ -6,6 +6,7 @@
 #include <stdatomic.h>
 #include <xrc/pointers.h>
 #include <xrc/util/slim_mutex.h>
+#include <sched.h>
 #include <xrc/util/util.h>
 
 
@@ -21,7 +22,7 @@ typedef uint64_t        xrc_btree_key;
 typedef uint64_t        xrc_btree_value;
 typedef xrc_btree_value xrc_btree_value_atomic;
 
-#define XRC_BTREE_MAX_DEPTH (58)
+#define XRC_BTREE_MAX_DEPTH (16)
 #define XRC_BTREE_NODE_SIZE (4096 - 16)
 #define XRC_BTREE_ALIGNMENT (MAX(MAX(alignof(xrc_btree_header), alignof(xrc_btree_key)), alignof(xrc_btree_value)))
 #define XRC_BTREE_HEADER_SIZE ((sizeof(xrc_btree_header) + XRC_BTREE_ALIGNMENT - 1) & ~(XRC_BTREE_ALIGNMENT - 1))
